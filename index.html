@@ -22,13 +22,26 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // Hàm hỗ trợ lấy dữ liệu từ Local Storage
-        const getSavedData = (key, initialValue) => {
-            const saved = localStorage.getItem(key);
-            if (saved) {
-                try { return JSON.parse(saved); } catch (e) { return initialValue; }
-            }
-            return initialValue;
+        // BỘ KHUNG ÉP LƯU TRỮ TỨC THÌ (Khắc phục 100% lỗi mất dữ liệu)
+        const useLocalStorageState = (key, initialValue) => {
+            const [state, setState] = useState(() => {
+                const saved = localStorage.getItem(key);
+                if (saved) {
+                    try { return JSON.parse(saved); } catch (e) { return initialValue; }
+                }
+                return initialValue;
+            });
+
+            const setValue = (value) => {
+                setState(value);
+                if (value === null || value === undefined) {
+                    localStorage.removeItem(key);
+                } else {
+                    localStorage.setItem(key, JSON.stringify(value));
+                }
+            };
+
+            return [state, setValue];
         };
 
         const App = () => {
@@ -39,9 +52,9 @@
           const [authMode, setAuthMode] = useState('login'); 
           const [authForm, setAuthForm] = useState({ username: '', password: '', confirmPassword: '' });
 
-          // --- STATE CÓ TÍCH HỢP LOCAL STORAGE ---
-          const [user, setUser] = useState(() => getSavedData('sp_user', null));
-          const [registeredUsers, setRegisteredUsers] = useState(() => getSavedData('sp_users', []));
+          // --- STATE ĐÃ TÍCH HỢP BỘ LƯU TRỮ TỨC THÌ ---
+          const [user, setUser] = useLocalStorageState('sp_user', null);
+          const [registeredUsers, setRegisteredUsers] = useLocalStorageState('sp_users', []);
           
           const defaultItems = [
             { id: 1, name: "Trái Ác Quỷ: Mochi Mochi", category: "Item", price: 50000, stock: 10, img: "https://api.dicebear.com/7.x/shapes/svg?seed=mochi", desc: "Hệ Paramecia đặc biệt cực mạnh." },
@@ -49,21 +62,26 @@
             { id: 3, name: "Gói 1,000,000 Beli", category: "Item", price: 20000, stock: 999, img: "https://api.dicebear.com/7.x/shapes/svg?seed=beli", desc: "Tiền tệ cơ bản trong game." },
             { id: 4, name: "Haki Quan Sát V2", category: "Gamepass", price: 250000, stock: 2, img: "https://api.dicebear.com/7.x/shapes/svg?seed=haki", desc: "Nâng cấp khả năng né tránh." },
           ];
-          const [items, setItems] = useState(() => getSavedData('sp_items', defaultItems));
+          const [items, setItems] = useLocalStorageState('sp_items', defaultItems);
           
-          const [pendingRequests, setPendingRequests] = useState(() => getSavedData('sp_pending', [])); 
-          const [transactionHistory, setTransactionHistory] = useState(() => getSavedData('sp_history', []));
-          const [cart, setCart] = useState(() => getSavedData('sp_cart', []));
+          const [pendingRequests, setPendingRequests] = useLocalStorageState('sp_pending', []); 
+          const [transactionHistory, setTransactionHistory] = useLocalStorageState('sp_history', []);
+          const [cart, setCart] = useLocalStorageState('sp_cart', []);
 
-          // --- LƯU DỮ LIỆU KHI CÓ THAY ĐỔI ---
-          useEffect(() => { localStorage.setItem('sp_user', JSON.stringify(user)); }, [user]);
-          useEffect(() => { localStorage.setItem('sp_users', JSON.stringify(registeredUsers)); }, [registeredUsers]);
-          useEffect(() => { localStorage.setItem('sp_items', JSON.stringify(items)); }, [items]);
-          useEffect(() => { localStorage.setItem('sp_pending', JSON.stringify(pendingRequests)); }, [pendingRequests]);
-          useEffect(() => { localStorage.setItem('sp_history', JSON.stringify(transactionHistory)); }, [transactionHistory]);
-          useEffect(() => { localStorage.setItem('sp_cart', JSON.stringify(cart)); }, [cart]);
+          // Các State Tùy chỉnh Admin (Lưu tức thì)
+          const [checkoutMessage, setCheckoutMessage] = useLocalStorageState('sp_msg', "Cảm ơn bạn đã đặt hàng thành công!\n\nVui lòng nhắn tin cho Admin qua Fanpage kèm theo [Tên tài khoản Roblox] để được giao đồ vào game nhanh nhất nhé!");
+          const [bannerInfo, setBannerInfo] = useLocalStorageState('sp_banner', {
+            title: "CHINH PHỤC \n ĐẠI HẢI TRÌNH",
+            subtitle: "Hệ thống phân phối vật phẩm Sailor Piece chuyên nghiệp. Giao đồ nhanh qua Roblox ID của bạn."
+          });
+          const [bankInfo, setBankInfo] = useLocalStorageState('sp_bank_info', {
+            qrUrl: "https://raw.githubusercontent.com/yewan-shop/assets/main/qr_mb.jpg",
+            accountName: "DO KHANH HUNG",
+            accountNumber: "0385921454",
+            bankName: "NGÂN HÀNG QUÂN ĐỘI (MB BANK)"
+          });
 
-          // Các State dùng tạm thời không cần lưu
+          // Các State dùng tạm thời giao diện (Không cần lưu)
           const [robloxUsername, setRobloxUsername] = useState('');
           const [newItem, setNewItem] = useState({ name: '', price: '', stock: '', category: 'Sword', desc: '' });
           const [depositTab, setDepositTab] = useState('bank');
@@ -72,19 +90,9 @@
           const [adjustAmount, setAdjustAmount] = useState('');
           const [selectedCategory, setSelectedCategory] = useState('All');
           const [selectedCardValue, setSelectedCardValue] = useState(10000);
-          
-          const [checkoutMessage, setCheckoutMessage] = useState(() => getSavedData('sp_msg', "Cảm ơn bạn đã đặt hàng thành công!\n\nVui lòng nhắn tin cho Admin qua Fanpage kèm theo [Tên tài khoản Roblox] để được giao đồ vào game nhanh nhất nhé!"));
-          useEffect(() => { localStorage.setItem('sp_msg', JSON.stringify(checkoutMessage)); }, [checkoutMessage]);
-
-          const [bannerInfo, setBannerInfo] = useState(() => getSavedData('sp_banner', {
-            title: "CHINH PHỤC \n ĐẠI HẢI TRÌNH",
-            subtitle: "Hệ thống phân phối vật phẩm Sailor Piece chuyên nghiệp. Giao đồ nhanh qua Roblox ID của bạn."
-          }));
-          useEffect(() => { localStorage.setItem('sp_banner', JSON.stringify(bannerInfo)); }, [bannerInfo]);
-
           const [showCheckoutSuccess, setShowCheckoutSuccess] = useState(false);
+
           const FANPAGE_URL = "https://www.facebook.com/share/17KdJjb5XM/";
-          const QR_IMAGE_URL = "https://raw.githubusercontent.com/yewan-shop/assets/main/qr_mb.jpg"; 
 
           const showNotify = (msg) => {
             setNotification(msg);
@@ -249,7 +257,7 @@
                  updatedUsers[userIndex].balance += req.receivedValue;
                  setRegisteredUsers(updatedUsers);
               }
-              if (user && user.name === req.user) setUser(prev => ({...prev, balance: prev.balance + req.receivedValue}));
+              if (user && user.name === req.user) setUser({...user, balance: user.balance + req.receivedValue});
               showNotify(`Đã duyệt +${req.receivedValue.toLocaleString()}đ cho ${req.user}`);
             } else {
               showNotify(`Đã giao đơn hàng thành công cho tài khoản Roblox: ${req.robloxUser}`);
@@ -271,7 +279,7 @@
                  updatedUsers[userIndex].balance += req.total;
                  setRegisteredUsers(updatedUsers);
               }
-              if (user && user.name === req.user) setUser(prev => ({...prev, balance: prev.balance + req.total}));
+              if (user && user.name === req.user) setUser({...user, balance: user.balance + req.total});
               
               // Trả lại số lượng sản phẩm vào kho
               const updatedItems = items.map(item => {
@@ -311,7 +319,7 @@
             
             // Cập nhật session admin nếu admin tự cộng cho chính mình (để test)
             if (user && user.name === targetUser) {
-                setUser(prev => ({...prev, balance: prev.balance + amount}));
+                setUser({...user, balance: user.balance + amount});
             }
 
             const transData = {
@@ -554,12 +562,12 @@
                             <h2 className="text-2xl font-black uppercase italic border-l-4 border-blue-600 pl-4">Quét Mã Thanh Toán</h2>
                             <div className="p-2 bg-slate-50 border rounded-[2rem] overflow-hidden">
                                <div className="bg-white rounded-[1.5rem] p-4 flex flex-col items-center">
-                                  <img src={QR_IMAGE_URL} alt="MB Bank QR" className="w-full max-w-[280px] rounded-lg shadow-sm" 
-                                    onError={(e) => { e.target.src = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=DO%20KHANH%20HUNG%200385921454"; }} />
+                                  <img src={bankInfo.qrUrl} alt="Bank QR" className="w-full max-w-[280px] rounded-lg shadow-sm" 
+                                    onError={(e) => { e.target.src = "https://placehold.co/300x300?text=Loi+Anh+QR"; }} />
                                   <div className="mt-4 text-center">
-                                    <p className="text-lg font-black tracking-widest text-slate-800 uppercase">DO KHANH HUNG</p>
-                                    <p className="text-blue-600 font-black text-xl">0385921454</p>
-                                    <p className="text-[10px] font-black text-slate-400 uppercase mt-1">NGÂN HÀNG QUÂN ĐỘI (MB BANK)</p>
+                                    <p className="text-lg font-black tracking-widest text-slate-800 uppercase">{bankInfo.accountName}</p>
+                                    <p className="text-blue-600 font-black text-xl">{bankInfo.accountNumber}</p>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase mt-1">{bankInfo.bankName}</p>
                                   </div>
                                </div>
                             </div>
@@ -884,6 +892,57 @@
                                    className="w-full py-4 mt-2 bg-slate-900 text-white font-black rounded-2xl uppercase text-xs tracking-widest shadow-xl hover:bg-slate-800 transition-colors"
                                  >
                                    LƯU BANNER
+                                 </button>
+                              </div>
+                           </div>
+
+                           {/* Cài đặt Thông tin Ngân Hàng */}
+                           <div className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border">
+                              <h3 className="font-black mb-6 flex items-center gap-2 uppercase text-xs tracking-widest text-slate-400"><i className="fa-solid fa-building-columns text-[16px]"></i> Cài đặt Ngân hàng & QR</h3>
+                              <div className="space-y-4">
+                                 <div className="space-y-1.5">
+                                   <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Link Ảnh Mã QR</label>
+                                   <input
+                                     type="text"
+                                     value={bankInfo.qrUrl}
+                                     onChange={e => setBankInfo({...bankInfo, qrUrl: e.target.value})}
+                                     placeholder="Nhập đường link ảnh đuôi .jpg, .png..."
+                                     className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-sm text-slate-700 focus:ring-2 focus:ring-blue-500"
+                                   />
+                                   <p className="text-[9px] font-bold text-slate-400 italic">Mẹo: Bạn có thể gửi ảnh mã QR lên tin nhắn Facebook, Messenger hoặc Discord rồi chuột phải, chọn "Copy Image Address" (Sao chép địa chỉ hình ảnh) và dán vào đây.</p>
+                                 </div>
+                                 <div className="space-y-1.5">
+                                   <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tên Chủ Tài Khoản</label>
+                                   <input
+                                     type="text"
+                                     value={bankInfo.accountName}
+                                     onChange={e => setBankInfo({...bankInfo, accountName: e.target.value})}
+                                     className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-sm text-slate-700 focus:ring-2 focus:ring-blue-500"
+                                   />
+                                 </div>
+                                 <div className="space-y-1.5">
+                                   <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Số Tài Khoản</label>
+                                   <input
+                                     type="text"
+                                     value={bankInfo.accountNumber}
+                                     onChange={e => setBankInfo({...bankInfo, accountNumber: e.target.value})}
+                                     className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-sm text-slate-700 focus:ring-2 focus:ring-blue-500"
+                                   />
+                                 </div>
+                                 <div className="space-y-1.5">
+                                   <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tên Ngân Hàng</label>
+                                   <input
+                                     type="text"
+                                     value={bankInfo.bankName}
+                                     onChange={e => setBankInfo({...bankInfo, bankName: e.target.value})}
+                                     className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-sm text-slate-700 focus:ring-2 focus:ring-blue-500"
+                                   />
+                                 </div>
+                                 <button 
+                                   onClick={() => showNotify("Đã cập nhật Thông tin Ngân hàng thành công!")} 
+                                   className="w-full py-4 mt-2 bg-blue-600 text-white font-black rounded-2xl uppercase text-xs tracking-widest shadow-xl hover:bg-blue-700 transition-colors"
+                                 >
+                                   LƯU THÔNG TIN
                                  </button>
                               </div>
                            </div>
