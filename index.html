@@ -3,27 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sailor Piece Shop - Cloud Sync</title>
-
+    <title>Sailor Piece Shop</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
-    <!-- Firebase SDK v10 Compat (Ổn định nhất cho Single HTML) -->
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
     <style>
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 8px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .animate-fade-in { animation: fadeIn 0.5s ease-out; }
     </style>
 </head>
 <body>
@@ -32,554 +22,1113 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // ==========================================
-        // CẤU HÌNH FIREBASE
-        // ==========================================
-       const firebaseConfig = {
-  apiKey: "AIzaSyDLeEfK8gZjbXPrbu9RdlbRJWmioZa6Ui8",
-  authDomain: "sailorpieceshop.firebaseapp.com",
-  databaseURL: "https://sailorpieceshop-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "sailorpieceshop",
-  storageBucket: "sailorpieceshop.firebasestorage.app",
-  messagingSenderId: "1084238596776",
-  appId: "1:1084238596776:web:ada9fe247f440dca30109d",
-  measurementId: "G-26S4B88DZR"
-};
-
-        const App = () => {
-            const [activeTab, setActiveTab] = useState('home');
-            const [loggedUserData, setLoggedUserData] = useState(null);
-            const [isLoading, setIsLoading] = useState(true);
-            const [notification, setNotification] = useState(null);
-            const [errorType, setErrorType] = useState(null);
-
-            const [items, setItems] = useState([]);
-            const [registeredUsers, setRegisteredUsers] = useState([]);
-            const [pendingRequests, setPendingRequests] = useState([]);
-            const [transactionHistory, setTransactionHistory] = useState([]);
-            const [shopSettings, setShopSettings] = useState({
-                bannerTitle: "CHINH PHỤC \n ĐẠI HẢI TRÌNH",
-                bannerSubtitle: "Shop phân phối vật phẩm Sailor Piece uy tín.",
-                checkoutMsg: "Cảm ơn bạn đã đặt hàng!",
-                qrUrl: "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=SAILOR_SHOP",
-                accountName: "ADMIN",
-                accountNumber: "0000000000",
-                bankName: "BANK"
+        // BỘ KHUNG ÉP LƯU TRỮ TỨC THÌ (Khắc phục 100% lỗi mất dữ liệu)
+        const useLocalStorageState = (key, initialValue) => {
+            const [state, setState] = useState(() => {
+                const saved = localStorage.getItem(key);
+                if (saved) {
+                    try { return JSON.parse(saved); } catch (e) { return initialValue; }
+                }
+                return initialValue;
             });
 
-            const [cart, setCart] = useState([]);
-            const [robloxUsername, setRobloxUsername] = useState('');
-            const [authMode, setAuthMode] = useState('login');
-            const [authForm, setAuthForm] = useState({ username: '', password: '', confirmPassword: '' });
-            const [selectedCategory, setSelectedCategory] = useState('All');
-            const [isCartOpen, setIsCartOpen] = useState(false);
-            const [showCheckoutSuccess, setShowCheckoutSuccess] = useState(false);
-
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'sailor-shop-v1';
-            const FANPAGE_URL = "https://www.facebook.com/share/17KdJjb5XM/";
-
-            const showNotify = (msg) => {
-                setNotification(msg);
-                setTimeout(() => setNotification(null), 3000);
-            };
-
-            // 1. Khởi tạo & Kết nối Firestore
-            useEffect(() => {
-                const startApp = async () => {
-                    if (!firebaseConfig.apiKey) {
-                        setErrorType('missing-config');
-                        setIsLoading(false);
-                        return;
-                    }
-
-                    try {
-                        if (!firebase.apps.length) {
-                            firebase.initializeApp(firebaseConfig);
-                        }
-                        
-                        const db = firebase.firestore();
-                        const auth = firebase.auth();
-
-                        // Đăng nhập
-                        try {
-                            // SỬA LỖI: Khi dùng config riêng, ta bỏ qua token hệ thống để tránh lỗi mismatch
-                            await auth.signInAnonymously();
-                        } catch (authErr) {
-                            console.error("Auth Error:", authErr);
-                            if (authErr.code === 'auth/configuration-not-found') {
-                                setErrorType('auth-not-enabled');
-                            } else {
-                                showNotify("Lỗi xác thực Firebase!");
-                            }
-                            setIsLoading(false);
-                            return;
-                        }
-
-                        // Lắng nghe dữ liệu
-                        const unsub = db.collection('artifacts').doc(appId).collection('public').doc('data')
-                            .onSnapshot((snap) => {
-                                if (snap.exists) {
-                                    const data = snap.data();
-                                    setItems(data.items || []);
-                                    setRegisteredUsers(data.users || []);
-                                    setPendingRequests(data.requests || []);
-                                    setTransactionHistory(data.history || []);
-                                    if (data.settings) setShopSettings(prev => ({ ...prev, ...data.settings }));
-                                } else {
-                                    // Tạo dữ liệu mặc định nếu Firestore trống
-                                    db.collection('artifacts').doc(appId).collection('public').doc('data').set({
-                                        items: [
-                                            { id: 1, name: "Trái Ác Quỷ: Mochi", category: "Item", price: 50000, stock: 10, img: "https://api.dicebear.com/7.x/shapes/svg?seed=mochi" },
-                                            { id: 2, name: "Thanh Kiếm: Yoru", category: "Sword", price: 150000, stock: 5, img: "https://api.dicebear.com/7.x/shapes/svg?seed=yoru" }
-                                        ],
-                                        users: [],
-                                        requests: [],
-                                        history: [],
-                                        settings: shopSettings
-                                    });
-                                }
-                                setIsLoading(false);
-                            }, (error) => {
-                                console.error("Firestore Error:", error);
-                                if (error.code === 'permission-denied') {
-                                    showNotify("Lỗi phân quyền Firestore (Hãy chỉnh Rules sang true)!");
-                                } else {
-                                    showNotify("Lỗi đồng bộ dữ liệu!");
-                                }
-                                setIsLoading(false);
-                            });
-
-                        // Khôi phục session
-                        const saved = localStorage.getItem('sp_session');
-                        if (saved) setLoggedUserData(JSON.parse(saved));
-
-                        return () => unsub();
-
-                    } catch (error) {
-                        console.error("Init Error:", error);
-                        setIsLoading(false);
-                    }
-                };
-
-                startApp();
-            }, [appId]);
-
-            const saveToCloud = async (updates) => {
-                try {
-                    const db = firebase.firestore();
-                    await db.collection('artifacts').doc(appId).collection('public').doc('data').update(updates);
-                } catch (e) {
-                    console.error("Save error", e);
-                    showNotify("Lỗi: Không thể lưu dữ liệu!");
-                }
-            };
-
-            const handleAuth = async (e) => {
-                e.preventDefault();
-                if (authMode === 'register') {
-                    if (authForm.password !== authForm.confirmPassword) return showNotify("Mật khẩu không khớp!");
-                    if (registeredUsers.find(u => u.username === authForm.username)) return showNotify("Tên đã tồn tại!");
-                    
-                    const newUser = { username: authForm.username, password: authForm.password, balance: 0, role: 'user' };
-                    await saveToCloud({ users: [...registeredUsers, newUser] });
-                    showNotify("Đăng ký thành công!");
-                    setAuthMode('login');
+            const setValue = (value) => {
+                setState(value);
+                if (value === null || value === undefined) {
+                    localStorage.removeItem(key);
                 } else {
-                    if (authForm.username === 'Yewan' && authForm.password === 'Botditcogiao113!') {
-                        const admin = { username: 'Yewan', role: 'admin', balance: 999999999 };
-                        setLoggedUserData(admin);
-                        localStorage.setItem('sp_session', JSON.stringify(admin));
-                        setActiveTab('admin');
-                        return;
-                    }
-                    const found = registeredUsers.find(u => u.username === authForm.username && u.password === authForm.password);
-                    if (found) {
-                        setLoggedUserData(found);
-                        localStorage.setItem('sp_session', JSON.stringify(found));
-                        setActiveTab('home');
-                        showNotify("Chào mừng trở lại!");
-                    } else showNotify("Sai tài khoản hoặc mật khẩu!");
+                    localStorage.setItem(key, JSON.stringify(value));
                 }
             };
 
-            const handleAddToCart = (item) => {
-                if (item.stock <= 0) return showNotify("Hết hàng!");
-                const existing = cart.find(i => i.id === item.id);
-                if (existing && existing.qty >= item.stock) return showNotify("Đạt giới hạn kho!");
-                if (existing) setCart(cart.map(i => i.id === item.id ? { ...i, qty: i.qty + 1 } : i));
-                else setCart([...cart, { ...item, qty: 1 }]);
-                showNotify("Đã thêm giỏ hàng!");
-            };
+            return [state, setValue];
+        };
 
-            const checkout = async () => {
-                if (!robloxUsername) return showNotify("Nhập Roblox ID!");
-                const total = cart.reduce((s, i) => s + (i.price * i.qty), 0);
-                if (!loggedUserData || loggedUserData.balance < total) return showNotify("Không đủ tiền!");
+        const App = () => {
+          const [activeTab, setActiveTab] = useState('home');
+          const [isCartOpen, setIsCartOpen] = useState(false);
+          const [notification, setNotification] = useState(null);
+          
+          const [authMode, setAuthMode] = useState('login'); 
+          const [authForm, setAuthForm] = useState({ username: '', password: '', confirmPassword: '' });
 
-                const order = {
-                    id: Date.now(),
-                    user: loggedUserData.username,
-                    robloxUser: robloxUsername,
-                    items: [...cart],
-                    total,
-                    status: 'pending',
-                    date: new Date().toLocaleString(),
-                    category: 'order'
-                };
+          // --- STATE ĐÃ TÍCH HỢP BỘ LƯU TRỮ TỨC THÌ ---
+          const [user, setUser] = useLocalStorageState('sp_user', null);
+          const [registeredUsers, setRegisteredUsers] = useLocalStorageState('sp_users', []);
+          
+          const defaultItems = [
+            { id: 1, name: "Trái Ác Quỷ: Mochi Mochi", category: "Item", price: 50000, stock: 10, img: "https://api.dicebear.com/7.x/shapes/svg?seed=mochi", desc: "Hệ Paramecia đặc biệt cực mạnh." },
+            { id: 2, name: "Thanh Kiếm: Yoru", category: "Sword", price: 150000, stock: 5, img: "https://api.dicebear.com/7.x/shapes/svg?seed=yoru", desc: "Thanh kiếm của Mắt Diều Hâu." },
+            { id: 3, name: "Gói 1,000,000 Beli", category: "Item", price: 20000, stock: 999, img: "https://api.dicebear.com/7.x/shapes/svg?seed=beli", desc: "Tiền tệ cơ bản trong game." },
+            { id: 4, name: "Haki Quan Sát V2", category: "Gamepass", price: 250000, stock: 2, img: "https://api.dicebear.com/7.x/shapes/svg?seed=haki", desc: "Nâng cấp khả năng né tránh." },
+          ];
+          const [items, setItems] = useLocalStorageState('sp_items', defaultItems);
+          
+          const [pendingRequests, setPendingRequests] = useLocalStorageState('sp_pending', []); 
+          const [transactionHistory, setTransactionHistory] = useLocalStorageState('sp_history', []);
+          const [cart, setCart] = useLocalStorageState('sp_cart', []);
 
-                const updatedUsers = registeredUsers.map(u => u.username === loggedUserData.username ? { ...u, balance: u.balance - total } : u);
-                const updatedItems = items.map(it => {
-                    const c = cart.find(x => x.id === it.id);
-                    return c ? { ...it, stock: it.stock - c.qty } : it;
-                });
+          // Các State Tùy chỉnh Admin (Lưu tức thì)
+          const [checkoutMessage, setCheckoutMessage] = useLocalStorageState('sp_msg', "Cảm ơn bạn đã đặt hàng thành công!\n\nVui lòng nhắn tin cho Admin qua Fanpage kèm theo [Tên tài khoản Roblox] để được giao đồ vào game nhanh nhất nhé!");
+          const [bannerInfo, setBannerInfo] = useLocalStorageState('sp_banner', {
+            title: "CHINH PHỤC \n ĐẠI HẢI TRÌNH",
+            subtitle: "Hệ thống phân phối vật phẩm Sailor Piece chuyên nghiệp. Giao đồ nhanh qua Roblox ID của bạn."
+          });
+          const [bankInfo, setBankInfo] = useLocalStorageState('sp_bank_info', {
+            qrUrl: "https://raw.githubusercontent.com/yewan-shop/assets/main/qr_mb.jpg",
+            accountName: "DO KHANH HUNG",
+            accountNumber: "0385921454",
+            bankName: "NGÂN HÀNG QUÂN ĐỘI (MB BANK)"
+          });
 
-                await saveToCloud({
-                    users: updatedUsers,
-                    items: updatedItems,
-                    requests: [order, ...pendingRequests],
-                    history: [order, ...transactionHistory]
-                });
+          // Các State dùng tạm thời giao diện (Không cần lưu)
+          const [robloxUsername, setRobloxUsername] = useState('');
+          const [newItem, setNewItem] = useState({ name: '', price: '', stock: '', category: 'Sword', desc: '' });
+          const [depositTab, setDepositTab] = useState('bank');
+          const [targetUser, setTargetUser] = useState('');
+          const [showUserDropdown, setShowUserDropdown] = useState(false);
+          const [adjustAmount, setAdjustAmount] = useState('');
+          const [selectedCategory, setSelectedCategory] = useState('All');
+          const [selectedCardValue, setSelectedCardValue] = useState(10000);
+          const [showCheckoutSuccess, setShowCheckoutSuccess] = useState(false);
 
-                if (loggedUserData.role !== 'admin') setLoggedUserData({ ...loggedUserData, balance: loggedUserData.balance - total });
-                setCart([]);
-                setIsCartOpen(false);
-                setShowCheckoutSuccess(true);
-            };
+          const FANPAGE_URL = "https://www.facebook.com/share/17KdJjb5XM/";
 
-            const handleApprove = async (id) => {
-                const req = pendingRequests.find(r => r.id === id);
-                if (!req) return;
-                let updatedUsers = [...registeredUsers];
-                if (req.category === 'deposit') {
-                    updatedUsers = registeredUsers.map(u => u.username === req.user ? { ...u, balance: u.balance + req.receivedValue } : u);
-                    if (loggedUserData && loggedUserData.username === req.user) setLoggedUserData({ ...loggedUserData, balance: loggedUserData.balance + req.receivedValue });
+          const showNotify = (msg) => {
+            setNotification(msg);
+            setTimeout(() => setNotification(null), 4000);
+          };
+
+          // --- Logic Auth ---
+          const handleAuth = (e) => {
+            e.preventDefault();
+            if (authMode === 'register') {
+              if (authForm.password !== authForm.confirmPassword) return showNotify("Mật khẩu không khớp!");
+              if (registeredUsers.find(u => u.username === authForm.username)) return showNotify("Tài khoản đã tồn tại!");
+              const newUser = { username: authForm.username, password: authForm.password, balance: 0, role: 'user' };
+              setRegisteredUsers([...registeredUsers, newUser]);
+              showNotify("Đăng ký thành công! Hãy đăng nhập.");
+              setAuthMode('login');
+              setAuthForm({ username: '', password: '', confirmPassword: '' });
+            } else {
+              if (authForm.username === 'Yewan' && authForm.password === 'Botditcogiao113!') {
+                setUser({ name: 'Yewan', balance: 999999999, role: 'admin' });
+                showNotify("Chào Admin Yewan! Đã mở quyền quản trị.");
+                setActiveTab('admin');
+              } else {
+                const found = registeredUsers.find(u => u.username === authForm.username && u.password === authForm.password);
+                if (found) {
+                  setUser(found);
+                  showNotify(`Chào mừng ${found.username}!`);
+                  setActiveTab('home');
+                } else {
+                  showNotify("Sai tài khoản hoặc mật khẩu!");
                 }
-                await saveToCloud({
-                    users: updatedUsers,
-                    history: transactionHistory.map(h => h.id === id ? { ...h, status: req.category === 'deposit' ? 'approved' : 'completed' } : h),
-                    requests: pendingRequests.filter(r => r.id !== id)
-                });
-                showNotify("Thao tác thành công!");
+              }
+            }
+          };
+
+          // --- Logic Nạp Tiền ---
+          const submitDeposit = (e) => {
+            e.preventDefault();
+            if (!user) return showNotify("Vui lòng đăng nhập!");
+            
+            let depositData = {
+              id: Date.now(),
+              user: user.name,
+              status: 'pending',
+              date: new Date().toLocaleString(),
+              category: 'deposit',
+              method: depositTab === 'card' ? 'Thẻ cào' : 'Chuyển khoản'
             };
 
-            if (errorType === 'auth-not-enabled') return (
-                <div className="h-screen flex items-center justify-center p-6 bg-slate-50 text-center">
-                    <div className="max-w-md bg-white p-10 rounded-[2.5rem] shadow-xl border">
-                        <i className="fa-solid fa-shield-halved text-5xl text-orange-500 mb-6"></i>
-                        <h1 className="text-xl font-black uppercase mb-4">Chưa bật Xác thực Ẩn danh</h1>
-                        <p className="text-slate-500 text-sm mb-6 leading-relaxed">
-                            Bạn cần vào <b>Firebase Console</b> -> <b>Authentication</b> -> <b>Sign-in method</b> và bật (Enable) phương thức <b>Anonymous</b> thì ứng dụng mới có thể kết nối.
-                        </p>
-                        <button onClick={() => window.location.reload()} className="px-6 py-3 bg-blue-600 text-white font-black rounded-xl uppercase text-xs">Thử lại</button>
+            if (depositTab === 'card') {
+              const cardValue = parseInt(e.target.value.value);
+              depositData = { 
+                ...depositData, 
+                type: e.target.type.value, 
+                value: cardValue, 
+                receivedValue: cardValue * 0.85, 
+                code: e.target.code.value, 
+                serial: e.target.serial.value 
+              };
+            } else {
+              const bankValue = parseInt(e.target.amount.value);
+              depositData = { 
+                ...depositData, 
+                value: bankValue, 
+                receivedValue: bankValue, 
+                note: e.target.note.value 
+              };
+            }
+            
+            setPendingRequests([depositData, ...pendingRequests]);
+            setTransactionHistory([depositData, ...transactionHistory]);
+            showNotify("Đã gửi yêu cầu! Admin sẽ duyệt sau ít phút.");
+            if (e.target.reset) e.target.reset();
+          };
+
+          // --- Logic Giỏ Hàng & Số Lượng ---
+          const handleAddToCart = (item) => {
+            if (item.stock <= 0) return showNotify("Sản phẩm này hiện đã hết hàng!");
+            
+            const existing = cart.find(i => i.id === item.id);
+            if (existing && existing.qty >= item.stock) {
+              return showNotify(`Kho chỉ còn ${item.stock} sản phẩm!`);
+            }
+
+            if (existing) {
+              setCart(cart.map(i => i.id === item.id ? {...i, qty: i.qty + 1} : i));
+            } else {
+              setCart([...cart, {...item, qty: 1}]);
+            }
+            showNotify("Đã thêm vào giỏ hàng!");
+          };
+
+          const updateCartQty = (id, delta) => {
+            const itemInCart = cart.find(i => i.id === id);
+            const itemInDb = items.find(i => i.id === id);
+            if (!itemInCart || !itemInDb) return;
+
+            const newQty = itemInCart.qty + delta;
+            if (newQty <= 0) {
+              setCart(cart.filter(i => i.id !== id));
+            } else if (newQty > itemInDb.stock) {
+              showNotify(`Sản phẩm này chỉ còn ${itemInDb.stock} chiếc trong kho!`);
+            } else {
+              setCart(cart.map(i => i.id === id ? {...i, qty: newQty} : i));
+            }
+          };
+
+          // --- Logic Mua Hàng ---
+          const checkout = () => {
+            if (!robloxUsername) return showNotify("Vui lòng nhập tên tài khoản Roblox!");
+            const total = cart.reduce((sum, i) => sum + i.price * i.qty, 0);
+            if (user.balance < total) return showNotify("Số dư không đủ! Hãy nạp thêm tiền.");
+            
+            const orderData = {
+              id: Date.now(),
+              user: user.name,
+              robloxUser: robloxUsername,
+              items: [...cart],
+              total: total,
+              status: 'pending',
+              date: new Date().toLocaleString(),
+              category: 'order'
+            };
+
+            setPendingRequests([orderData, ...pendingRequests]);
+            setTransactionHistory([orderData, ...transactionHistory]);
+            
+            // Cập nhật số dư cho session hiện tại VÀ trong danh sách user
+            const updatedBalance = user.balance - total;
+            setUser({...user, balance: updatedBalance});
+            
+            const userIndex = registeredUsers.findIndex(u => u.username === user.name);
+            if(userIndex !== -1) {
+               const updatedUsers = [...registeredUsers];
+               updatedUsers[userIndex].balance = updatedBalance;
+               setRegisteredUsers(updatedUsers);
+            }
+            
+            const updatedItems = items.map(item => {
+              const purchased = cart.find(c => c.id === item.id);
+              if (purchased) {
+                return { ...item, stock: item.stock - purchased.qty };
+              }
+              return item;
+            });
+            setItems(updatedItems);
+
+            setCart([]);
+            setIsCartOpen(false);
+            setShowCheckoutSuccess(true);
+          };
+
+          // --- LOGIC PHÊ DUYỆT / TỪ CHỐI BỞI ADMIN ---
+          const handleApprove = (reqId) => {
+            const req = pendingRequests.find(r => r.id === reqId);
+            if (!req) return;
+
+            if (req.category === 'deposit') {
+              const userIndex = registeredUsers.findIndex(u => u.username === req.user);
+              if (userIndex !== -1) {
+                 const updatedUsers = [...registeredUsers];
+                 updatedUsers[userIndex].balance += req.receivedValue;
+                 setRegisteredUsers(updatedUsers);
+              }
+              if (user && user.name === req.user) setUser({...user, balance: user.balance + req.receivedValue});
+              showNotify(`Đã duyệt +${req.receivedValue.toLocaleString()}đ cho ${req.user}`);
+            } else {
+              showNotify(`Đã giao đơn hàng thành công cho tài khoản Roblox: ${req.robloxUser}`);
+            }
+            
+            setTransactionHistory(transactionHistory.map(h => h.id === reqId ? {...h, status: req.category === 'deposit' ? 'approved' : 'completed'} : h));
+            setPendingRequests(pendingRequests.filter(r => r.id !== reqId));
+          };
+
+          const handleReject = (reqId) => {
+            const req = pendingRequests.find(r => r.id === reqId);
+            if (!req) return;
+
+            if (req.category === 'order') {
+              // Hoàn tiền cho người dùng nếu đơn hàng bị hủy
+              const userIndex = registeredUsers.findIndex(u => u.username === req.user);
+              if (userIndex !== -1) {
+                 const updatedUsers = [...registeredUsers];
+                 updatedUsers[userIndex].balance += req.total;
+                 setRegisteredUsers(updatedUsers);
+              }
+              if (user && user.name === req.user) setUser({...user, balance: user.balance + req.total});
+              
+              // Trả lại số lượng sản phẩm vào kho
+              const updatedItems = items.map(item => {
+                 const purchased = req.items.find(c => c.id === item.id);
+                 if (purchased) {
+                    return { ...item, stock: item.stock + purchased.qty };
+                 }
+                 return item;
+              });
+              setItems(updatedItems);
+
+              showNotify(`Đã báo không thành công! Đã hoàn lại ${req.total.toLocaleString()}đ cho ${req.user}`);
+            } else {
+              showNotify(`Đã từ chối yêu cầu nạp tiền của ${req.user}`);
+            }
+
+            setTransactionHistory(transactionHistory.map(h => h.id === reqId ? {...h, status: 'rejected'} : h));
+            setPendingRequests(pendingRequests.filter(r => r.id !== reqId));
+          };
+
+          const handleManualAddBalance = (e) => {
+            e.preventDefault();
+            if (!targetUser || !adjustAmount) return showNotify("Vui lòng nhập đầy đủ thông tin!");
+
+            const amount = parseInt(adjustAmount);
+            if (isNaN(amount) || amount <= 0) return showNotify("Số tiền không hợp lệ!");
+
+            const userIndex = registeredUsers.findIndex(u => u.username === targetUser);
+
+            if (userIndex === -1) {
+               return showNotify("Không tìm thấy tài khoản này trong hệ thống!");
+            }
+
+            const updatedUsers = [...registeredUsers];
+            updatedUsers[userIndex].balance += amount;
+            setRegisteredUsers(updatedUsers);
+            
+            // Cập nhật session admin nếu admin tự cộng cho chính mình (để test)
+            if (user && user.name === targetUser) {
+                setUser({...user, balance: user.balance + amount});
+            }
+
+            const transData = {
+              id: Date.now(),
+              user: targetUser,
+              category: 'deposit',
+              method: 'Admin Cộng Tiền',
+              value: amount,
+              receivedValue: amount,
+              status: 'approved',
+              date: new Date().toLocaleString()
+            };
+            setTransactionHistory([transData, ...transactionHistory]);
+
+            showNotify(`Đã cộng thành công ${amount.toLocaleString()}đ cho tài khoản ${targetUser}!`);
+            setTargetUser(''); 
+            setAdjustAmount(''); 
+          };
+
+          return (
+            <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-blue-100 pb-10">
+              {/* Messenger Bubble */}
+              <a 
+                href={FANPAGE_URL}
+                target="_blank" 
+                rel="noreferrer"
+                className="fixed bottom-6 right-6 z-[90] bg-blue-600 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-transform flex items-center justify-center animate-bounce"
+              >
+                <i className="fa-brands fa-facebook-messenger text-[28px]"></i>
+              </a>
+
+              {/* Popup Thanh Toán Thành Công */}
+              {showCheckoutSuccess && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+                   <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setShowCheckoutSuccess(false)}></div>
+                   <div className="relative bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 duration-300 border border-slate-100">
+                      <div className="w-20 h-20 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                         <i className="fa-solid fa-circle-check text-[40px]"></i>
+                      </div>
+                      <h3 className="text-2xl font-black text-center uppercase italic text-slate-800 mb-2">Đặt Hàng Thành Công!</h3>
+                      <p className="text-center text-[10px] font-black uppercase text-slate-400 mb-6 tracking-widest">Roblox ID: {robloxUsername}</p>
+                      
+                      <div className="bg-blue-50/50 p-5 rounded-3xl border border-blue-100 mb-8 text-sm font-bold text-slate-700 leading-relaxed whitespace-pre-wrap text-center">
+                         {checkoutMessage}
+                      </div>
+                      
+                      <div className="space-y-3">
+                         <a 
+                            href={FANPAGE_URL} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            onClick={() => setShowCheckoutSuccess(false)}
+                            className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl uppercase text-xs tracking-widest flex items-center justify-center gap-2 hover:bg-blue-700 transition-colors shadow-xl shadow-blue-100"
+                         >
+                            <i className="fa-brands fa-facebook-messenger text-[18px]"></i> Chat Với Fanpage Ngay
+                         </a>
+                         <button 
+                            onClick={() => setShowCheckoutSuccess(false)} 
+                            className="w-full py-4 bg-slate-100 text-slate-500 font-black rounded-2xl uppercase text-xs tracking-widest hover:bg-slate-200 transition-colors"
+                         >
+                            Đóng lại
+                         </button>
+                      </div>
+                   </div>
+                </div>
+              )}
+
+              {/* Toast Notification */}
+              {notification && (
+                <div className="fixed top-20 right-4 z-[120] bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border-l-4 border-blue-500 animate-in slide-in-from-right-full">
+                  <i className="fa-solid fa-bolt text-yellow-400 text-[16px]"></i>
+                  <p className="text-sm font-bold">{notification}</p>
+                </div>
+              )}
+
+              {/* Header */}
+              <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b border-slate-100">
+                <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+                  <div className="flex items-center gap-2 cursor-pointer" onClick={() => setActiveTab('home')}>
+                    <div className="bg-blue-600 text-white p-2 rounded-xl shadow-lg shadow-blue-200 flex items-center justify-center w-9 h-9">
+                      <i className="fa-solid fa-anchor text-[16px]"></i>
                     </div>
-                </div>
-            );
+                    <span className="text-lg font-black uppercase italic tracking-tighter">Sailor<span className="text-blue-600">Shop</span></span>
+                  </div>
 
-            if (isLoading) return (
-                <div className="h-screen flex flex-col items-center justify-center bg-slate-900 text-white">
-                    <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.3em]">Đang đồng bộ Đám Mây...</p>
-                </div>
-            );
+                  <nav className="hidden md:flex items-center gap-6 font-black text-[10px] uppercase tracking-widest text-slate-400">
+                    <button onClick={() => setActiveTab('home')} className={activeTab === 'home' ? 'text-blue-600' : 'hover:text-slate-900'}>Trang Chủ</button>
+                    <button onClick={() => setActiveTab('shop')} className={activeTab === 'shop' ? 'text-blue-600' : 'hover:text-slate-900'}>Sản Phẩm</button>
+                    <button onClick={() => setActiveTab('deposit')} className={activeTab === 'deposit' ? 'text-blue-600' : 'hover:text-slate-900'}>Nạp Tiền</button>
+                    {user && <button onClick={() => setActiveTab('history')} className={activeTab === 'history' ? 'text-blue-600' : 'hover:text-slate-900'}>Lịch Sử</button>}
+                    {user?.role === 'admin' && <button onClick={() => setActiveTab('admin')} className="text-orange-500 flex items-center gap-1.5"><i className="fa-solid fa-gear text-[14px]"></i> QUẢN TRỊ</button>}
+                  </nav>
 
-            return (
-                <div className="min-h-screen bg-slate-50 text-slate-900 pb-10 animate-fade-in">
-                    {notification && (
-                        <div className="fixed top-20 right-4 z-[120] bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border-l-4 border-blue-500 animate-in slide-in-from-right-full">
-                            <i className="fa-solid fa-bolt text-yellow-400"></i>
-                            <p className="text-sm font-bold">{notification}</p>
+                  <div className="flex items-center gap-3">
+                    {user ? (
+                      <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-2xl border border-slate-200">
+                        <div className="text-right hidden sm:block">
+                          <p className="text-[8px] font-black text-slate-400 leading-none">VÍ SHOP</p>
+                          <p className="text-xs font-black text-emerald-600">{user.balance.toLocaleString()}đ</p>
                         </div>
+                        <button onClick={() => {setUser(null); setActiveTab('home');}} className="ml-2 text-slate-400 hover:text-red-600 transition-colors"><i className="fa-solid fa-right-from-bracket text-[16px]"></i></button>
+                      </div>
+                    ) : (
+                      <button onClick={() => {setAuthMode('login'); setActiveTab('auth');}} className="bg-slate-900 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-colors">Đăng Nhập</button>
                     )}
+                    <button onClick={() => setIsCartOpen(true)} className="relative p-2.5 bg-slate-100 rounded-2xl hover:bg-slate-200 transition-colors flex items-center justify-center">
+                      <i className="fa-solid fa-cart-shopping text-[16px]"></i>
+                      {cart.length > 0 && <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[9px] font-black w-5 h-5 flex items-center justify-center rounded-full border-2 border-white">{cart.length}</span>}
+                    </button>
+                  </div>
+                </div>
+              </header>
 
-                    {showCheckoutSuccess && (
-                        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-                            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowCheckoutSuccess(false)}></div>
-                            <div className="relative bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl animate-in zoom-in-95 border">
-                                <div className="w-20 h-20 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6"><i className="fa-solid fa-circle-check text-[40px]"></i></div>
-                                <h3 className="text-2xl font-black text-center uppercase italic text-slate-800 mb-2">Thành Công!</h3>
-                                <div className="bg-blue-50 p-5 rounded-3xl mb-8 text-sm font-bold text-slate-700 leading-relaxed text-center whitespace-pre-wrap">{shopSettings.checkoutMsg}</div>
-                                <a href={FANPAGE_URL} target="_blank" className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl uppercase text-xs flex items-center justify-center gap-2 mb-3 shadow-lg shadow-blue-100"><i className="fa-brands fa-facebook-messenger text-lg"></i> Chat Với Admin Ngay</a>
-                                <button onClick={() => setShowCheckoutSuccess(false)} className="w-full py-4 bg-slate-100 text-slate-500 font-black rounded-2xl uppercase text-xs">Đóng</button>
-                            </div>
+              <main className="max-w-7xl mx-auto px-4 py-8">
+                {/* Auth */}
+                {activeTab === 'auth' && (
+                  <div className="max-w-md mx-auto bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-50 mt-10">
+                    <div className="flex gap-4 mb-8">
+                      <button onClick={() => setAuthMode('login')} className={`flex-1 py-3 font-black text-[10px] uppercase rounded-2xl transition-all ${authMode === 'login' ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-400'}`}>Đăng Nhập</button>
+                      <button onClick={() => setAuthMode('register')} className={`flex-1 py-3 font-black text-[10px] uppercase rounded-2xl transition-all ${authMode === 'register' ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-400'}`}>Đăng Ký</button>
+                    </div>
+                    <form onSubmit={handleAuth} className="space-y-4">
+                      <input type="text" placeholder="Tên tài khoản" required value={authForm.username} onChange={e => setAuthForm({...authForm, username: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none" />
+                      <input type="password" placeholder="Mật khẩu" required value={authForm.password} onChange={e => setAuthForm({...authForm, password: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none" />
+                      {authMode === 'register' && <input type="password" placeholder="Xác nhận mật khẩu" required value={authForm.confirmPassword} onChange={e => setAuthForm({...authForm, confirmPassword: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none" />}
+                      <button className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl uppercase text-xs tracking-widest">{authMode === 'login' ? 'Đăng Nhập' : 'Đăng Ký'}</button>
+                    </form>
+                  </div>
+                )}
+
+                {/* Home */}
+                {activeTab === 'home' && (
+                  <div className="space-y-12">
+                    <div className="bg-gradient-to-br from-blue-700 to-indigo-900 rounded-[3rem] p-12 text-white relative overflow-hidden shadow-2xl">
+                      <div className="relative z-10 max-w-2xl">
+                        <h1 className="text-5xl md:text-6xl font-black mb-4 italic uppercase tracking-tighter leading-tight whitespace-pre-line">{bannerInfo.title}</h1>
+                        <p className="text-blue-100 text-lg mb-8 opacity-90 font-medium max-w-lg whitespace-pre-line">{bannerInfo.subtitle}</p>
+                        <div className="flex flex-wrap gap-4">
+                          <button onClick={() => setActiveTab('shop')} className="bg-white text-blue-900 px-8 py-3.5 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-yellow-400 transition-colors shadow-lg">Xem Sản Phẩm</button>
+                          <button onClick={() => setActiveTab('deposit')} className="bg-blue-600/50 backdrop-blur px-8 py-3.5 rounded-2xl font-black uppercase text-xs tracking-widest border border-white/20 hover:bg-blue-600 transition-colors">Nạp Tiền Vào Ví</button>
                         </div>
-                    )}
+                      </div>
+                      <div className="absolute right-[-50px] bottom-[-50px] opacity-10 rotate-12 flex items-center justify-center">
+                         <i className="fa-solid fa-anchor text-[350px]"></i>
+                      </div>
+                    </div>
 
-                    <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b h-16 flex items-center px-4">
-                        <div className="max-w-7xl mx-auto w-full flex justify-between items-center">
-                            <div className="flex items-center gap-2 cursor-pointer" onClick={() => setActiveTab('home')}>
-                                <div className="bg-blue-600 text-white p-2 rounded-xl flex items-center justify-center w-9 h-9 shadow-lg shadow-blue-100"><i className="fa-solid fa-anchor"></i></div>
-                                <span className="text-lg font-black uppercase italic tracking-tighter">Sailor<span className="text-blue-600">Shop</span></span>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+                      {items.slice(0, 4).map(item => (
+                        <div key={item.id} className="bg-white p-5 rounded-[2.5rem] border border-slate-100 hover:shadow-xl transition-all group flex flex-col">
+                          <div className="bg-slate-50 rounded-3xl h-44 flex items-center justify-center mb-4 overflow-hidden relative">
+                            <img src={item.img} className="h-28 group-hover:scale-110 transition-transform duration-500" />
+                          </div>
+                          <div className="flex-grow">
+                            <div className="flex justify-between items-start mb-1">
+                              <p className="text-[10px] font-black text-blue-500 uppercase">{item.category}</p>
+                              <p className={`text-[10px] font-bold ${item.stock > 0 ? 'text-slate-400' : 'text-red-500'}`}>Kho: {item.stock > 0 ? item.stock : 'Hết'}</p>
                             </div>
-                            <nav className="hidden md:flex gap-6 text-[10px] font-black uppercase text-slate-400">
-                                <button onClick={() => setActiveTab('home')} className={activeTab === 'home' ? 'text-blue-600' : ''}>Trang Chủ</button>
-                                <button onClick={() => setActiveTab('shop')} className={activeTab === 'shop' ? 'text-blue-600' : ''}>Sản Phẩm</button>
-                                <button onClick={() => setActiveTab('deposit')} className={activeTab === 'deposit' ? 'text-blue-600' : ''}>Nạp Tiền</button>
-                                {loggedUserData && <button onClick={() => setActiveTab('history')}>Lịch Sử</button>}
-                                {loggedUserData?.role === 'admin' && <button onClick={() => setActiveTab('admin')} className="text-orange-500 flex items-center gap-1"><i className="fa-solid fa-gear"></i> QUẢN TRỊ</button>}
-                            </nav>
-                            <div className="flex items-center gap-3">
-                                {loggedUserData ? (
-                                    <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-2xl border">
-                                        <div className="text-right hidden sm:block">
-                                            <p className="text-[8px] font-black text-slate-400 uppercase leading-none">VÍ {loggedUserData.username}</p>
-                                            <p className="text-xs font-black text-emerald-600">{loggedUserData.balance.toLocaleString()}đ</p>
+                            <h3 className="font-black text-sm text-slate-800 uppercase italic line-clamp-1">{item.name}</h3>
+                            <p className="text-red-600 font-black text-xl tracking-tighter mt-1">{item.price.toLocaleString()}đ</p>
+                          </div>
+                          <button 
+                            onClick={() => handleAddToCart(item)}
+                            className={`mt-4 w-full py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-colors ${item.stock > 0 ? 'bg-slate-900 text-white hover:bg-blue-600' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
+                          >
+                            {item.stock > 0 ? 'Thêm Vào Giỏ' : 'Hết Hàng'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Shop */}
+                {activeTab === 'shop' && (
+                  <div className="space-y-8 animate-in fade-in duration-500">
+                    <div className="flex flex-wrap gap-2 mb-6">
+                      {['All', 'Sword', 'Melee', 'Item', 'Gamepass'].map(cat => (
+                        <button 
+                          key={cat}
+                          onClick={() => setSelectedCategory(cat)}
+                          className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                            selectedCategory === cat 
+                              ? 'bg-blue-600 text-white shadow-xl shadow-blue-200 border-transparent' 
+                              : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50 hover:text-blue-600'
+                          }`}
+                        >
+                          {cat === 'All' ? 'Tất cả' : cat}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+                      {(selectedCategory === 'All' ? items : items.filter(i => i.category === selectedCategory)).map(item => (
+                        <div key={item.id} className="bg-white p-5 rounded-[2.5rem] border border-slate-100 hover:shadow-xl transition-all group flex flex-col">
+                          <div className="bg-slate-50 rounded-3xl h-44 flex items-center justify-center mb-4 overflow-hidden relative">
+                            <img src={item.img} className="h-28 group-hover:scale-110 transition-transform duration-500" />
+                          </div>
+                          <div className="flex-grow">
+                            <div className="flex justify-between items-start mb-1">
+                              <p className="text-[10px] font-black text-blue-500 uppercase">{item.category}</p>
+                              <p className={`text-[10px] font-bold ${item.stock > 0 ? 'text-slate-400' : 'text-red-500'}`}>Kho: {item.stock > 0 ? item.stock : 'Hết'}</p>
+                            </div>
+                            <h3 className="font-black text-sm text-slate-800 uppercase italic line-clamp-1">{item.name}</h3>
+                            <p className="text-red-600 font-black text-xl tracking-tighter mt-1">{item.price.toLocaleString()}đ</p>
+                          </div>
+                          <button 
+                            onClick={() => handleAddToCart(item)}
+                            className={`mt-4 w-full py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-colors ${item.stock > 0 ? 'bg-slate-900 text-white hover:bg-blue-600' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}
+                          >
+                            {item.stock > 0 ? 'Thêm Vào Giỏ' : 'Hết Hàng'}
+                          </button>
+                        </div>
+                      ))}
+                      {(selectedCategory === 'All' ? items : items.filter(i => i.category === selectedCategory)).length === 0 && (
+                        <div className="col-span-full py-20 text-center text-slate-400 font-bold italic">
+                          Không tìm thấy sản phẩm nào trong danh mục này.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Deposit */}
+                {activeTab === 'deposit' && (
+                  <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
+                    <div className="bg-white p-2 rounded-3xl shadow-sm border flex gap-2">
+                      <button onClick={() => setDepositTab('bank')} className={`flex-1 py-4 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center gap-2 transition-all ${depositTab === 'bank' ? 'bg-slate-900 text-white shadow-xl' : 'text-slate-400'}`}>
+                        <i className="fa-solid fa-money-bill-wave text-[16px]"></i> Chuyển Khoản MB Bank
+                      </button>
+                      <button onClick={() => setDepositTab('card')} className={`flex-1 py-4 rounded-2xl font-black text-[10px] uppercase flex items-center justify-center gap-2 transition-all ${depositTab === 'card' ? 'bg-slate-900 text-white shadow-xl' : 'text-slate-400'}`}>
+                        <i className="fa-solid fa-credit-card text-[16px]"></i> Thẻ Cào
+                      </button>
+                    </div>
+
+                    <div className="bg-white p-6 md:p-10 rounded-[3rem] shadow-2xl border border-slate-100">
+                      {depositTab === 'bank' ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-10 items-start">
+                          <div className="space-y-6">
+                            <h2 className="text-2xl font-black uppercase italic border-l-4 border-blue-600 pl-4">Quét Mã Thanh Toán</h2>
+                            <div className="p-2 bg-slate-50 border rounded-[2rem] overflow-hidden">
+                               <div className="bg-white rounded-[1.5rem] p-4 flex flex-col items-center">
+                                  <img src={bankInfo.qrUrl} alt="Bank QR" className="w-full max-w-[280px] rounded-lg shadow-sm" 
+                                    onError={(e) => { e.target.src = "https://placehold.co/300x300?text=Loi+Anh+QR"; }} />
+                                  <div className="mt-4 text-center">
+                                    <p className="text-lg font-black tracking-widest text-slate-800 uppercase">{bankInfo.accountName}</p>
+                                    <p className="text-blue-600 font-black text-xl">{bankInfo.accountNumber}</p>
+                                    <p className="text-[10px] font-black text-slate-400 uppercase mt-1">{bankInfo.bankName}</p>
+                                  </div>
+                               </div>
+                            </div>
+                            <div className="flex items-center gap-3 p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
+                               <i className="fa-brands fa-facebook-messenger text-blue-600 text-[16px]"></i>
+                               <div className="text-xs font-bold text-blue-900 uppercase">
+                                  Cần hỗ trợ? <a href={FANPAGE_URL} target="_blank" rel="noreferrer" className="underline decoration-2">Chat với Fanpage</a>
+                               </div>
+                            </div>
+                          </div>
+                          <div className="space-y-6">
+                            <h3 className="font-black uppercase text-sm text-slate-400 tracking-widest">Gửi Yêu Cầu Nạp Tiền</h3>
+                            <form onSubmit={submitDeposit} className="space-y-4">
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Số Tiền Đã Chuyển</label>
+                                <input name="amount" type="number" required placeholder="Ví dụ: 50000" className="w-full p-4 bg-slate-50 border rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-bold" />
+                              </div>
+                              <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Tên Tài Khoản Đăng Nhập</label>
+                                <input name="note" required placeholder="Nhập tên tài khoản trên Shop" className="w-full p-4 bg-slate-50 border rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-bold" />
+                              </div>
+                              <button className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl shadow-xl shadow-blue-100 uppercase text-xs tracking-widest flex items-center justify-center gap-2 mt-4 hover:bg-blue-700">
+                                XÁC NHẬN ĐÃ CHUYỂN <i className="fa-solid fa-chevron-right text-[14px]"></i>
+                              </button>
+                              <p className="text-[10px] text-center text-slate-400 font-bold italic leading-relaxed uppercase pt-2">
+                                Admin sẽ kiểm tra sao kê và cộng tiền vào tài khoản của bạn.
+                              </p>
+                            </form>
+                          </div>
+                        </div>
+                      ) : (
+                        <form onSubmit={submitDeposit} className="space-y-6 max-w-xl mx-auto">
+                           <h2 className="text-2xl font-black uppercase italic border-l-4 border-blue-600 pl-4 mb-6">Nạp Thẻ Tự Động</h2>
+                           <div className="p-4 bg-red-50 text-red-600 rounded-2xl border border-red-100 text-[10px] font-black uppercase tracking-widest text-center">
+                             🚨 Lưu ý: Nạp thẻ cào sẽ bị trừ 15% phí chiết khấu (Thuế).
+                           </div>
+                           <div className="grid grid-cols-2 gap-4">
+                             <select name="type" className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-slate-700">
+                               <option>Viettel</option><option>Mobifone</option><option>Vinaphone</option><option>Zing</option>
+                             </select>
+                             <select 
+                               name="value" 
+                               value={selectedCardValue}
+                               onChange={(e) => setSelectedCardValue(Number(e.target.value))}
+                               className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-slate-700"
+                             >
+                               <option value="10000">10,000đ</option><option value="20000">20,000đ</option><option value="50000">50,000đ</option><option value="100000">100,000đ</option><option value="500000">500,000đ</option>
+                             </select>
+                           </div>
+                           
+                           <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 flex justify-between items-center shadow-inner">
+                              <span className="text-[10px] font-black uppercase text-emerald-800 tracking-widest">THỰC NHẬN VÀO VÍ</span>
+                              <span className="text-2xl font-black text-emerald-600 tracking-tighter">{(selectedCardValue * 0.85).toLocaleString()}đ</span>
+                           </div>
+
+                           <input name="serial" placeholder="Số Seri thẻ" required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold" />
+                           <input name="code" placeholder="Mã thẻ (sau lớp cào)" required className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold" />
+                           <button className="w-full py-4 bg-slate-900 text-white font-black rounded-2xl shadow-xl uppercase text-xs tracking-widest mt-2 hover:bg-blue-600 transition-colors">Gửi Yêu Cầu</button>
+                        </form>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Admin Dashboard */}
+                {activeTab === 'admin' && user?.role === 'admin' && (
+                  <div className="space-y-8 animate-in fade-in duration-500 pb-20">
+                     <div className="bg-slate-900 text-white p-8 rounded-[2rem] flex flex-col md:flex-row justify-between items-center gap-6 shadow-2xl">
+                        <div>
+                          <h2 className="text-3xl font-black italic uppercase flex items-center gap-3"><i className="fa-solid fa-gear text-blue-500"></i> Bảng Điều Khiển</h2>
+                          <p className="text-slate-400 text-sm font-medium">Bạn có {pendingRequests.length} yêu cầu đang chờ được xử lý.</p>
+                        </div>
+                        <div className="bg-white/10 px-6 py-3 rounded-2xl border border-white/10 text-center backdrop-blur">
+                           <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Đang Chờ</p>
+                           <p className="text-3xl font-black tracking-tighter">{pendingRequests.length}</p>
+                        </div>
+                     </div>
+
+                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        {/* Cột Trái */}
+                        <div className="lg:col-span-2 space-y-8">
+                           {/* Yêu cầu chờ duyệt */}
+                           <div className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border">
+                              <h3 className="font-black mb-6 flex items-center gap-2 uppercase text-xs tracking-widest text-slate-400"><i className="fa-solid fa-clock text-[16px]"></i> Danh sách yêu cầu mới</h3>
+                              <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                                {pendingRequests.map(req => (
+                                  <div key={req.id} className="p-5 bg-slate-50 rounded-3xl border flex flex-col sm:flex-row justify-between items-center gap-4">
+                                     <div className="flex items-center gap-4 w-full sm:w-auto">
+                                        <div className={`p-4 rounded-2xl flex-shrink-0 flex items-center justify-center w-14 h-14 ${req.category === 'deposit' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}>
+                                           <i className={`fa-solid ${req.category === 'deposit' ? 'fa-wallet' : 'fa-cart-shopping'} text-[20px]`}></i>
                                         </div>
-                                        <button onClick={() => { setLoggedUserData(null); localStorage.removeItem('sp_session'); }} className="text-slate-400 hover:text-red-600 p-1"><i className="fa-solid fa-right-from-bracket"></i></button>
-                                    </div>
-                                ) : (
-                                    <button onClick={() => setActiveTab('auth')} className="bg-slate-900 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-slate-200">Đăng Nhập</button>
-                                )}
-                                <button onClick={() => setIsCartOpen(true)} className="relative p-2.5 bg-slate-100 rounded-2xl border">
-                                    <i className="fa-solid fa-cart-shopping"></i>
-                                    {cart.length > 0 && <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[9px] w-5 h-5 flex items-center justify-center rounded-full border-2 border-white font-bold">{cart.length}</span>}
+                                        <div>
+                                           <p className="text-sm font-black text-slate-800 uppercase tracking-tighter">
+                                              {req.user} - {req.category === 'deposit' ? `Nạp ${req.method}` : `Mua hàng`}
+                                           </p>
+                                           <p className="text-sm font-black text-red-600 mt-0.5">
+                                              {req.category === 'deposit' && req.method === 'Thẻ cào' ? (
+                                                <>
+                                                  <span className="line-through text-slate-400 text-xs mr-2">{req.value?.toLocaleString()}đ</span>
+                                                  {req.receivedValue?.toLocaleString()}đ <span className="text-[10px] text-red-400">(-15%)</span>
+                                                </>
+                                              ) : (
+                                                `${req.value?.toLocaleString() || req.total?.toLocaleString()}đ`
+                                              )}
+                                           </p>
+                                           <p className="text-[10px] text-slate-400 font-bold italic mt-1">{req.date}</p>
+                                           
+                                           {/* Chi tiết phụ thuộc vào loại */}
+                                           {req.category === 'deposit' && req.code && <p className="text-[10px] font-black text-emerald-600 mt-2 uppercase bg-emerald-50 inline-block px-2 py-1 rounded">Mã: {req.code} | Seri: {req.serial}</p>}
+                                           {req.category === 'order' && <p className="text-[10px] font-black text-blue-600 mt-2 uppercase bg-blue-50 inline-block px-2 py-1 rounded">Roblox ID: {req.robloxUser}</p>}
+                                        </div>
+                                     </div>
+                                     
+                                     {/* TÙY BIẾN NÚT DỰA VÀO LOẠI YÊU CẦU */}
+                                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+                                        {req.category === 'order' ? (
+                                          <>
+                                            <button onClick={() => handleApprove(req.id)} className="flex-1 sm:flex-none px-4 py-3 bg-blue-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-colors shadow-lg shadow-blue-100 whitespace-nowrap">Giao Thành Công</button>
+                                            <button onClick={() => handleReject(req.id)} className="flex-1 sm:flex-none px-4 py-3 bg-slate-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-600 transition-colors shadow-lg shadow-slate-100 whitespace-nowrap">Không Thành Công</button>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <button onClick={() => handleApprove(req.id)} className="flex-1 sm:flex-none px-4 py-3 bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 transition-colors shadow-lg shadow-emerald-100 whitespace-nowrap">Duyệt Nạp</button>
+                                            <button onClick={() => handleReject(req.id)} className="flex-1 sm:flex-none px-4 py-3 bg-red-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-red-600 transition-colors shadow-lg shadow-red-100 whitespace-nowrap">Từ Chối</button>
+                                          </>
+                                        )}
+                                     </div>
+                                  </div>
+                                ))}
+                                {pendingRequests.length === 0 && <div className="py-20 text-center text-slate-400 font-medium italic">Hiện chưa có yêu cầu nào mới.</div>}
+                              </div>
+                           </div>
+
+                           {/* Quản lý Số lượng và Giá Sản Phẩm */}
+                           <div className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border">
+                              <h3 className="font-black mb-6 flex items-center gap-2 uppercase text-xs tracking-widest text-slate-400"><i className="fa-solid fa-pen-to-square text-[16px]"></i> Quản lý kho hàng & Giá bán</h3>
+                              <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                                {items.map(item => (
+                                   <div key={item.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col sm:flex-row gap-4 items-center">
+                                      <img src={item.img} className="w-12 h-12 rounded-xl bg-white p-1 border shadow-sm" />
+                                      <div className="flex-grow w-full">
+                                         <p className="text-xs font-black uppercase text-slate-800 line-clamp-1">{item.name}</p>
+                                         <p className="text-[10px] text-blue-500 font-black mb-2">{item.category}</p>
+                                         <div className="flex gap-2">
+                                            <div className="flex-1">
+                                               <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Giá (VNĐ)</label>
+                                               <input 
+                                                 type="number" 
+                                                 value={item.price} 
+                                                 onChange={e => setItems(items.map(i => i.id === item.id ? {...i, price: parseInt(e.target.value) || 0} : i))} 
+                                                 className="w-full p-2 text-xs font-black text-red-600 bg-white border rounded-lg outline-none focus:ring-2 focus:ring-blue-500" 
+                                               />
+                                            </div>
+                                            <div className="flex-1">
+                                               <label className="text-[9px] font-bold text-slate-400 uppercase block mb-1">Số lượng tồn</label>
+                                               <input 
+                                                 type="number" 
+                                                 value={item.stock} 
+                                                 onChange={e => setItems(items.map(i => i.id === item.id ? {...i, stock: parseInt(e.target.value) || 0} : i))} 
+                                                 className="w-full p-2 text-xs font-black text-blue-600 bg-white border rounded-lg outline-none focus:ring-2 focus:ring-blue-500" 
+                                               />
+                                            </div>
+                                         </div>
+                                      </div>
+                                      <button onClick={() => setItems(items.filter(i => i.id !== item.id))} className="w-full sm:w-auto p-3 text-slate-400 hover:text-white hover:bg-red-500 rounded-xl transition-colors">
+                                         <i className="fa-solid fa-trash text-[18px]"></i>
+                                      </button>
+                                   </div>
+                                ))}
+                              </div>
+                           </div>
+                        </div>
+
+                        {/* Cột Phải - Form Đăng & Cài Đặt */}
+                        <div className="space-y-8">
+                           {/* Form Cộng Tiền & Quản lý Tài Khoản */}
+                           <div className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border">
+                              <h3 className="font-black mb-6 flex items-center gap-2 uppercase text-xs tracking-widest text-slate-400"><i className="fa-solid fa-wallet text-[16px]"></i> Cộng tiền & Quản lý TK</h3>
+                              <form onSubmit={handleManualAddBalance} className="space-y-4">
+                                <div className="relative">
+                                   <i className="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-[18px]"></i>
+                                   <input 
+                                     type="text" 
+                                     placeholder="Tìm tên tài khoản cần cộng..." 
+                                     value={targetUser}
+                                     onChange={e => { setTargetUser(e.target.value); setShowUserDropdown(true); }}
+                                     onFocus={() => setShowUserDropdown(true)}
+                                     onBlur={() => setTimeout(() => setShowUserDropdown(false), 200)}
+                                     className="w-full pl-12 pr-4 py-4 bg-slate-50 border rounded-2xl outline-none font-bold text-sm focus:ring-2 focus:ring-blue-500" 
+                                     required
+                                   />
+                                   {showUserDropdown && targetUser && (
+                                     <div className="absolute z-10 w-full mt-2 bg-white border border-slate-100 rounded-xl shadow-xl max-h-48 overflow-y-auto custom-scrollbar">
+                                        {registeredUsers.filter(u => u.username.toLowerCase().includes(targetUser.toLowerCase())).length > 0 ? (
+                                           registeredUsers.filter(u => u.username.toLowerCase().includes(targetUser.toLowerCase())).map((u, idx) => (
+                                              <div 
+                                                 key={idx} 
+                                                 onMouseDown={(e) => { e.preventDefault(); setTargetUser(u.username); setShowUserDropdown(false); }}
+                                                 className="p-3 hover:bg-blue-50 cursor-pointer flex justify-between items-center border-b border-slate-50 last:border-0 transition-colors"
+                                              >
+                                                 <div className="flex items-center gap-2 text-xs font-black text-slate-700"><i className="fa-solid fa-user text-[14px] text-blue-500"></i> {u.username}</div>
+                                                 <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md">{u.balance.toLocaleString()}đ</span>
+                                              </div>
+                                           ))
+                                        ) : (
+                                           <div className="p-4 text-center text-[10px] font-black uppercase text-slate-400 tracking-widest">Không tìm thấy tài khoản</div>
+                                        )}
+                                     </div>
+                                   )}
+                                </div>
+                                <input 
+                                  type="number" 
+                                  placeholder="Số tiền cần cộng (VNĐ)" 
+                                  value={adjustAmount}
+                                  onChange={e => setAdjustAmount(e.target.value)}
+                                  className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-sm focus:ring-2 focus:ring-blue-500" 
+                                  required
+                                />
+                                <button className="w-full py-4 bg-emerald-500 text-white font-black rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-emerald-100 hover:bg-emerald-600 transition-colors">
+                                  XÁC NHẬN CỘNG TIỀN
                                 </button>
-                            </div>
+                              </form>
+
+                              {/* Hiển thị danh sách và mật khẩu User */}
+                              <div className="mt-8 pt-6 border-t border-slate-100">
+                                 <h4 className="font-black mb-4 uppercase text-[10px] tracking-widest text-slate-400 flex items-center justify-between">
+                                   <span>Tài khoản đã đăng ký</span>
+                                   <span className="bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">{registeredUsers.length}</span>
+                                 </h4>
+                                 <div className="max-h-[250px] overflow-y-auto pr-2 space-y-3 custom-scrollbar">
+                                   {registeredUsers.length === 0 ? (
+                                     <div className="text-center py-6 text-slate-400 italic text-xs">Chưa có thành viên nào.</div>
+                                   ) : (
+                                     registeredUsers.map((u, idx) => (
+                                       <div key={idx} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-between items-center group hover:border-blue-200 transition-colors">
+                                         <div>
+                                           <p className="text-xs font-black text-slate-800 flex items-center gap-1.5"><i className="fa-solid fa-user text-[12px]"></i> {u.username}</p>
+                                           <p className="text-[10px] font-mono text-slate-500 mt-1.5 bg-white px-2 py-1 rounded border border-slate-100 shadow-sm inline-block">Mật khẩu: <span className="text-red-500 font-bold">{u.password}</span></p>
+                                         </div>
+                                         <div className="text-right">
+                                           <p className="text-sm font-black text-emerald-600">{u.balance.toLocaleString()}đ</p>
+                                           <button 
+                                             onClick={() => {
+                                               setTargetUser(u.username);
+                                               window.scrollTo({ top: 0, behavior: 'smooth' });
+                                             }}
+                                             className="text-[9px] font-black uppercase text-white mt-1.5 bg-blue-500 px-2.5 py-1.5 rounded-lg opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity hover:bg-blue-600"
+                                           >
+                                             Chọn Cộng
+                                           </button>
+                                         </div>
+                                       </div>
+                                     ))
+                                   )}
+                                 </div>
+                              </div>
+                           </div>
+
+                           <div className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border">
+                              <h3 className="font-black mb-6 flex items-center gap-2 uppercase text-xs tracking-widest text-slate-400"><i className="fa-solid fa-circle-plus text-[16px]"></i> Đăng sản phẩm</h3>
+                              <form onSubmit={(e) => {
+                                e.preventDefault();
+                                const product = { ...newItem, id: Date.now(), price: parseInt(newItem.price), stock: parseInt(newItem.stock) || 0, img: `https://api.dicebear.com/7.x/shapes/svg?seed=${newItem.name}` };
+                                setItems([product, ...items]);
+                                setNewItem({ name: '', price: '', stock: '', category: 'Sword', desc: '' });
+                                showNotify("Đã đăng vật phẩm thành công!");
+                              }} className="space-y-4">
+                                <input placeholder="Tên vật phẩm" required value={newItem.name} onChange={e => setNewItem({...newItem, name: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold" />
+                                <div className="grid grid-cols-2 gap-2">
+                                   <input type="number" placeholder="Giá tiền (VNĐ)" required value={newItem.price} onChange={e => setNewItem({...newItem, price: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold" />
+                                   <input type="number" placeholder="Số lượng" required value={newItem.stock} onChange={e => setNewItem({...newItem, stock: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold" />
+                                </div>
+                                <select value={newItem.category} onChange={e => setNewItem({...newItem, category: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-slate-700">
+                                   <option>Sword</option><option>Melee</option><option>Item</option><option>Gamepass</option>
+                                </select>
+                                <button className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-blue-100 hover:bg-blue-700 transition-colors">ĐĂNG TẢI</button>
+                              </form>
+                           </div>
+
+                           {/* Cài đặt thông báo */}
+                           <div className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border">
+                              <h3 className="font-black mb-6 flex items-center gap-2 uppercase text-xs tracking-widest text-slate-400"><i className="fa-solid fa-comment-dots text-[16px]"></i> Cài đặt thông báo Popup</h3>
+                              <p className="text-[10px] text-slate-500 font-bold italic mb-4">Nội dung này sẽ hiển thị cho khách ngay sau khi họ bấm thanh toán thành công.</p>
+                              <textarea 
+                                value={checkoutMessage}
+                                onChange={(e) => setCheckoutMessage(e.target.value)}
+                                rows={5}
+                                className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-sm text-slate-700 leading-relaxed resize-none focus:ring-2 focus:ring-blue-500"
+                              />
+                              <button 
+                                onClick={() => showNotify("Đã cập nhật câu thông báo thành công!")} 
+                                className="w-full py-4 mt-4 bg-slate-900 text-white font-black rounded-2xl uppercase text-xs tracking-widest shadow-xl hover:bg-slate-800 transition-colors"
+                              >
+                                LƯU THAY ĐỔI
+                              </button>
+                           </div>
+
+                           {/* Cài đặt Banner */}
+                           <div className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border">
+                              <h3 className="font-black mb-6 flex items-center gap-2 uppercase text-xs tracking-widest text-slate-400"><i className="fa-solid fa-pen-to-square text-[16px]"></i> Tùy chỉnh Banner Trang Chủ</h3>
+                              <div className="space-y-4">
+                                 <div className="space-y-1.5">
+                                   <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tiêu Đề Chính</label>
+                                   <textarea
+                                     value={bannerInfo.title}
+                                     onChange={e => setBannerInfo({...bannerInfo, title: e.target.value})}
+                                     rows={2}
+                                     className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-sm text-slate-700 resize-none focus:ring-2 focus:ring-blue-500"
+                                   />
+                                 </div>
+                                 <div className="space-y-1.5">
+                                   <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Mô Tả Phụ</label>
+                                   <textarea
+                                     value={bannerInfo.subtitle}
+                                     onChange={e => setBannerInfo({...bannerInfo, subtitle: e.target.value})}
+                                     rows={3}
+                                     className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-sm text-slate-700 resize-none focus:ring-2 focus:ring-blue-500"
+                                   />
+                                 </div>
+                                 <button 
+                                   onClick={() => showNotify("Đã cập nhật Banner thành công!")} 
+                                   className="w-full py-4 mt-2 bg-slate-900 text-white font-black rounded-2xl uppercase text-xs tracking-widest shadow-xl hover:bg-slate-800 transition-colors"
+                                 >
+                                   LƯU BANNER
+                                 </button>
+                              </div>
+                           </div>
+
+                           {/* Cài đặt Thông tin Ngân Hàng */}
+                           <div className="bg-white p-6 md:p-8 rounded-[2rem] shadow-sm border">
+                              <h3 className="font-black mb-6 flex items-center gap-2 uppercase text-xs tracking-widest text-slate-400"><i className="fa-solid fa-building-columns text-[16px]"></i> Cài đặt Ngân hàng & QR</h3>
+                              <div className="space-y-4">
+                                 <div className="space-y-1.5">
+                                   <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Link Ảnh Mã QR</label>
+                                   <input
+                                     type="text"
+                                     value={bankInfo.qrUrl}
+                                     onChange={e => setBankInfo({...bankInfo, qrUrl: e.target.value})}
+                                     placeholder="Nhập đường link ảnh đuôi .jpg, .png..."
+                                     className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-sm text-slate-700 focus:ring-2 focus:ring-blue-500"
+                                   />
+                                   <p className="text-[9px] font-bold text-slate-400 italic">Mẹo: Bạn có thể gửi ảnh mã QR lên tin nhắn Facebook, Messenger hoặc Discord rồi chuột phải, chọn "Copy Image Address" (Sao chép địa chỉ hình ảnh) và dán vào đây.</p>
+                                 </div>
+                                 <div className="space-y-1.5">
+                                   <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tên Chủ Tài Khoản</label>
+                                   <input
+                                     type="text"
+                                     value={bankInfo.accountName}
+                                     onChange={e => setBankInfo({...bankInfo, accountName: e.target.value})}
+                                     className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-sm text-slate-700 focus:ring-2 focus:ring-blue-500"
+                                   />
+                                 </div>
+                                 <div className="space-y-1.5">
+                                   <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Số Tài Khoản</label>
+                                   <input
+                                     type="text"
+                                     value={bankInfo.accountNumber}
+                                     onChange={e => setBankInfo({...bankInfo, accountNumber: e.target.value})}
+                                     className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-sm text-slate-700 focus:ring-2 focus:ring-blue-500"
+                                   />
+                                 </div>
+                                 <div className="space-y-1.5">
+                                   <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tên Ngân Hàng</label>
+                                   <input
+                                     type="text"
+                                     value={bankInfo.bankName}
+                                     onChange={e => setBankInfo({...bankInfo, bankName: e.target.value})}
+                                     className="w-full p-4 bg-slate-50 border rounded-2xl outline-none font-bold text-sm text-slate-700 focus:ring-2 focus:ring-blue-500"
+                                   />
+                                 </div>
+                                 <button 
+                                   onClick={() => showNotify("Đã cập nhật Thông tin Ngân hàng thành công!")} 
+                                   className="w-full py-4 mt-2 bg-blue-600 text-white font-black rounded-2xl uppercase text-xs tracking-widest shadow-xl hover:bg-blue-700 transition-colors"
+                                 >
+                                   LƯU THÔNG TIN
+                                 </button>
+                              </div>
+                           </div>
                         </div>
-                    </header>
+                     </div>
+                  </div>
+                )}
 
-                    <main className="max-w-7xl mx-auto px-4 py-8">
-                        {activeTab === 'auth' && (
-                            <div className="max-w-md mx-auto bg-white p-10 rounded-[2.5rem] shadow-2xl mt-10 border border-slate-50">
-                                <div className="flex gap-4 mb-8">
-                                    <button onClick={() => setAuthMode('login')} className={`flex-1 py-3 font-black text-[10px] uppercase rounded-2xl transition-all ${authMode === 'login' ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-400'}`}>Đăng Nhập</button>
-                                    <button onClick={() => setAuthMode('register')} className={`flex-1 py-3 font-black text-[10px] uppercase rounded-2xl transition-all ${authMode === 'register' ? 'bg-slate-900 text-white' : 'bg-slate-50 text-slate-400'}`}>Đăng Ký</button>
-                                </div>
-                                <form onSubmit={handleAuth} className="space-y-4">
-                                    <input type="text" placeholder="Tên tài khoản" required value={authForm.username} onChange={e => setAuthForm({...authForm, username: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none" />
-                                    <input type="password" placeholder="Mật khẩu" required value={authForm.password} onChange={e => setAuthForm({...authForm, password: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none" />
-                                    {authMode === 'register' && <input type="password" placeholder="Xác nhận mật khẩu" required value={authForm.confirmPassword} onChange={e => setAuthForm({...authForm, confirmPassword: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none" />}
-                                    <button className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl uppercase text-xs">Tiếp Tục</button>
-                                </form>
+                {/* History */}
+                {activeTab === 'history' && (
+                  <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
+                     <h2 className="text-2xl font-black uppercase italic border-l-4 border-blue-600 pl-4">Lịch Sử Của Bạn</h2>
+                     <div className="bg-white rounded-[2rem] shadow-sm border overflow-hidden">
+                        <table className="w-full text-left">
+                          <thead className="bg-slate-50 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b">
+                            <tr>
+                              <th className="px-6 py-5">Ngày Giao Dịch</th>
+                              <th className="px-6 py-5">Chi Tiết</th>
+                              <th className="px-6 py-5">Số Tiền</th>
+                              <th className="px-6 py-5 text-center">Trạng Thái</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {transactionHistory.filter(h => h.user === user?.name || user?.role === 'admin').map(h => (
+                              <tr key={h.id} className="text-xs hover:bg-slate-50 transition-colors">
+                                <td className="px-6 py-5 text-slate-500 font-bold">{h.date}</td>
+                                <td className="px-6 py-5">
+                                  <p className="font-black text-slate-800 uppercase tracking-tighter">
+                                    {h.category === 'deposit' ? `Nạp Tiền: ${h.method}` : `Mua Hàng (${h.items.length} món)`}
+                                  </p>
+                                  {h.robloxUser && <p className="text-[9px] font-black text-blue-500 uppercase mt-1">ID ROBLOX: {h.robloxUser}</p>}
+                                </td>
+                                <td className="px-6 py-5 font-black text-red-600 text-sm">{h.category === 'deposit' ? (h.receivedValue || h.value)?.toLocaleString() : h.total?.toLocaleString()}đ</td>
+                                <td className="px-6 py-5 text-center">
+                                  <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                                    h.status === 'pending' ? 'bg-orange-100 text-orange-600' :
+                                    h.status === 'approved' || h.status === 'completed' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'
+                                  }`}>
+                                    {h.status === 'pending' ? 'Chờ Xử Lý' : h.status === 'approved' ? 'Thành Công' : h.status === 'completed' ? 'Hoàn Tất' : 'Đã Hủy'}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                            {transactionHistory.length === 0 && <tr><td colSpan="4" className="py-20 text-center text-slate-400 font-bold italic">Chưa có dữ liệu giao dịch.</td></tr>}
+                          </tbody>
+                        </table>
+                     </div>
+                  </div>
+                )}
+              </main>
+
+              {/* Cart Drawer */}
+              {isCartOpen && (
+                <div className="fixed inset-0 z-[100] flex justify-end">
+                  <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsCartOpen(false)}></div>
+                  <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+                     <div className="p-8 border-b bg-slate-900 text-white flex justify-between items-center">
+                        <h2 className="font-black uppercase italic tracking-tighter flex items-center gap-2 text-xl"><i className="fa-solid fa-cart-shopping text-[22px]"></i> Giỏ Hàng</h2>
+                        <button onClick={() => setIsCartOpen(false)} className="hover:scale-110 transition-transform bg-white/10 p-2 w-8 h-8 rounded-full flex items-center justify-center"><i className="fa-solid fa-xmark text-[20px]"></i></button>
+                     </div>
+                     
+                     <div className="flex-grow overflow-y-auto p-6 space-y-4">
+                        {cart.map(i => (
+                          <div key={i.id} className="bg-slate-50 p-4 rounded-3xl border border-slate-100">
+                            <div className="flex gap-4 items-start">
+                               <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center p-2 shadow-sm border border-slate-50">
+                                  <img src={i.img} className="w-full h-full object-contain" />
+                               </div>
+                               <div className="flex-grow">
+                                 <p className="text-[9px] font-black uppercase tracking-widest text-blue-500 mb-1">{i.category}</p>
+                                 <p className="text-xs font-black text-slate-800 uppercase italic line-clamp-1">{i.name}</p>
+                                 
+                                 {/* Tùy chỉnh số lượng trong giỏ */}
+                                 <div className="flex items-center justify-between mt-2">
+                                   <div className="flex items-center bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+                                      <button onClick={() => updateCartQty(i.id, -1)} className="w-8 h-7 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-600 transition-colors font-bold">-</button>
+                                      <span className="w-8 text-center text-xs font-black text-slate-800">{i.qty}</span>
+                                      <button onClick={() => updateCartQty(i.id, 1)} className="w-8 h-7 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-600 transition-colors font-bold">+</button>
+                                   </div>
+                                   <p className="text-sm font-black text-red-600">{(i.price * i.qty).toLocaleString()}đ</p>
+                                 </div>
+                               </div>
                             </div>
+                          </div>
+                        ))}
+                        {cart.length === 0 && (
+                          <div className="h-full flex flex-col items-center justify-center space-y-4">
+                             <i className="fa-solid fa-cart-shopping text-slate-200 text-[60px]"></i>
+                             <p className="text-slate-400 font-bold text-sm">Giỏ hàng đang trống.</p>
+                          </div>
                         )}
+                     </div>
 
-                        {activeTab === 'home' && (
-                            <div className="space-y-12">
-                                <div className="bg-gradient-to-br from-blue-700 to-indigo-900 rounded-[3rem] p-12 text-white relative overflow-hidden shadow-2xl">
-                                    <div className="relative z-10 max-w-2xl">
-                                        <h1 className="text-5xl md:text-6xl font-black mb-4 italic uppercase tracking-tighter leading-tight whitespace-pre-line">{shopSettings.bannerTitle}</h1>
-                                        <p className="text-blue-100 text-lg mb-8 opacity-90 font-medium max-w-lg">{shopSettings.bannerSubtitle}</p>
-                                        <div className="flex gap-4">
-                                            <button onClick={() => setActiveTab('shop')} className="bg-white text-blue-900 px-8 py-3.5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg">Khám Phá Shop</button>
-                                        </div>
-                                    </div>
-                                    <div className="absolute right-[-50px] bottom-[-50px] opacity-10 rotate-12"><i className="fa-solid fa-anchor text-[350px]"></i></div>
-                                </div>
-
-                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-                                    {items.slice(0, 4).map(item => (
-                                        <div key={item.id} className="bg-white p-5 rounded-[2.5rem] border hover:shadow-xl transition-all group flex flex-col">
-                                            <div className="bg-slate-50 rounded-3xl h-44 flex items-center justify-center mb-4 overflow-hidden relative">
-                                                <img src={item.img} className="h-28 group-hover:scale-110 transition-transform duration-500" />
-                                            </div>
-                                            <div className="flex justify-between items-start mb-1 flex-grow">
-                                                <div>
-                                                    <p className="text-[10px] font-black text-blue-500 uppercase">{item.category}</p>
-                                                    <h3 className="font-black text-sm text-slate-800 uppercase italic line-clamp-1">{item.name}</h3>
-                                                </div>
-                                                <p className={`text-[10px] font-bold ${item.stock > 0 ? 'text-slate-400' : 'text-red-500'}`}>Kho: {item.stock}</p>
-                                            </div>
-                                            <p className="text-red-600 font-black text-xl mt-1">{item.price.toLocaleString()}đ</p>
-                                            <button onClick={() => handleAddToCart(item)} className={`mt-4 w-full py-3 rounded-2xl font-black text-[10px] uppercase transition-all ${item.stock > 0 ? 'bg-slate-900 text-white hover:bg-blue-600' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
-                                                {item.stock > 0 ? 'Thêm Vào Giỏ' : 'Hết Hàng'}
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {activeTab === 'shop' && (
-                            <div className="space-y-8">
-                                <div className="flex flex-wrap gap-2 mb-6">
-                                    {['All', 'Sword', 'Item', 'Melee', 'Gamepass'].map(cat => (
-                                        <button key={cat} onClick={() => setSelectedCategory(cat)} className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase transition-all ${selectedCategory === cat ? 'bg-blue-600 text-white shadow-xl' : 'bg-white text-slate-500 border'}`}>{cat}</button>
-                                    ))}
-                                </div>
-                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
-                                    {(selectedCategory === 'All' ? items : items.filter(i => i.category === selectedCategory)).map(item => (
-                                        <div key={item.id} className="bg-white p-5 rounded-[2.5rem] border hover:shadow-xl transition-all group flex flex-col">
-                                            <div className="bg-slate-50 rounded-3xl h-44 flex items-center justify-center mb-4 overflow-hidden">
-                                                <img src={item.img} className="h-28 group-hover:scale-110 transition-transform" />
-                                            </div>
-                                            <div className="flex justify-between items-start mb-1 flex-grow">
-                                                <div>
-                                                    <p className="text-[10px] font-black text-blue-500 uppercase">{item.category}</p>
-                                                    <h3 className="font-black text-sm text-slate-800 uppercase italic">{item.name}</h3>
-                                                </div>
-                                                <p className={`text-[10px] font-bold ${item.stock > 0 ? 'text-slate-400' : 'text-red-500'}`}>Kho: {item.stock}</p>
-                                            </div>
-                                            <p className="text-red-600 font-black text-xl mt-1">{item.price.toLocaleString()}đ</p>
-                                            <button onClick={() => handleAddToCart(item)} className={`mt-4 w-full py-3 rounded-2xl font-black text-[10px] uppercase ${item.stock > 0 ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-400'}`}>Mua Ngay</button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {activeTab === 'deposit' && (
-                            <div className="max-w-4xl mx-auto space-y-8">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                                    <div className="bg-white p-10 rounded-[3rem] shadow-2xl border text-center">
-                                        <h2 className="text-2xl font-black uppercase italic border-l-4 border-blue-600 pl-4 text-left mb-6">Chuyển Khoản</h2>
-                                        <img src={shopSettings.qrUrl} className="mx-auto rounded-2xl w-64 shadow-md mb-4 border" />
-                                        <p className="font-black uppercase text-lg text-slate-800">{shopSettings.accountName}</p>
-                                        <p className="text-blue-600 font-black text-2xl tracking-tighter">{shopSettings.accountNumber}</p>
-                                        <p className="text-[10px] font-black text-slate-400 uppercase mt-1">{shopSettings.bankName}</p>
-                                    </div>
-                                    <div className="bg-white p-10 rounded-[3rem] shadow-2xl border">
-                                        <h3 className="font-black uppercase text-sm text-slate-400 tracking-widest mb-6">Gửi Yêu Cầu Duyệt Nạp</h3>
-                                        <form onSubmit={async (e) => {
-                                            e.preventDefault();
-                                            if (!loggedUserData) return showNotify("Hãy đăng nhập!");
-                                            const amount = parseInt(e.target.amount.value);
-                                            const req = { id: Date.now(), user: loggedUserData.username, receivedValue: amount, status: 'pending', date: new Date().toLocaleString(), category: 'deposit', method: 'Chuyển khoản' };
-                                            await saveToCloud({ requests: [req, ...pendingRequests], history: [req, ...transactionHistory] });
-                                            showNotify("Đã gửi yêu cầu nạp tiền!");
-                                            e.target.reset();
-                                        }} className="space-y-4">
-                                            <input name="amount" type="number" required placeholder="Số tiền đã chuyển" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" />
-                                            <button className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl uppercase text-xs tracking-widest shadow-xl">Xác Nhận Đã Chuyển</button>
-                                        </form>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {activeTab === 'admin' && loggedUserData?.role === 'admin' && (
-                            <div className="space-y-8 pb-20">
-                                <div className="bg-slate-900 text-white p-8 rounded-[2rem] flex justify-between items-center shadow-2xl border border-white/10">
-                                    <div><h2 className="text-3xl font-black italic uppercase">Quản Trị Shop</h2><p className="text-slate-400">Đang hoạt động trên Cloud Firestore</p></div>
-                                    <div className="text-center bg-white/10 p-4 rounded-2xl"><p className="text-[10px] text-blue-400 font-black">CHỜ XỬ LÝ</p><p className="text-3xl font-black">{pendingRequests.length}</p></div>
-                                </div>
-
-                                <div className="grid lg:grid-cols-3 gap-8">
-                                    <div className="lg:col-span-2 space-y-8">
-                                        <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
-                                            <h3 className="font-black text-xs uppercase text-slate-400 mb-6 flex items-center gap-2"><i className="fa-solid fa-clock"></i> Đơn hàng mới</h3>
-                                            <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                                                {pendingRequests.map(req => (
-                                                    <div key={req.id} className="p-5 bg-slate-50 rounded-3xl border flex justify-between items-center gap-4">
-                                                        <div className="flex gap-4 items-center">
-                                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${req.category === 'deposit' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}><i className={`fa-solid ${req.category === 'deposit' ? 'fa-wallet' : 'fa-cart-shopping'}`}></i></div>
-                                                            <div>
-                                                                <p className="font-black text-slate-800 text-xs uppercase">{req.user} - {req.method || 'Đơn hàng'}</p>
-                                                                <p className="text-red-600 font-black">{(req.receivedValue || req.total).toLocaleString()}đ</p>
-                                                                {req.robloxUser && <p className="text-[9px] font-black text-blue-500 uppercase">Roblox: {req.robloxUser}</p>}
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex gap-2">
-                                                            <button onClick={() => handleApprove(req.id)} className="px-5 py-2.5 bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase">Duyệt</button>
-                                                            <button onClick={() => saveToCloud({ requests: pendingRequests.filter(r => r.id !== req.id), history: transactionHistory.map(h => h.id === req.id ? {...h, status: 'rejected'} : h) })} className="px-5 py-2.5 bg-red-500 text-white rounded-xl text-[10px] font-black uppercase">Hủy</button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                                {pendingRequests.length === 0 && <p className="text-center text-slate-400 italic py-10">Tất cả đơn hàng đã được xử lý.</p>}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-8">
-                                        <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
-                                            <h3 className="font-black text-xs text-slate-400 mb-6 uppercase">Cài đặt shop</h3>
-                                            <div className="space-y-4">
-                                                <input value={shopSettings.accountNumber} onChange={e => setShopSettings({...shopSettings, accountNumber: e.target.value})} placeholder="Số tài khoản" className="w-full p-3 border rounded-xl text-xs font-bold" />
-                                                <input value={shopSettings.qrUrl} onChange={e => setShopSettings({...shopSettings, qrUrl: e.target.value})} placeholder="Link QR" className="w-full p-3 border rounded-xl text-xs font-bold" />
-                                                <button onClick={() => saveToCloud({ settings: shopSettings })} className="w-full py-3 bg-slate-900 text-white font-black text-[10px] uppercase rounded-xl">Lưu Cấu Hình</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {activeTab === 'history' && (
-                            <div className="max-w-4xl mx-auto space-y-8 pb-20">
-                                <h2 className="text-2xl font-black uppercase italic border-l-4 border-blue-600 pl-4">Lịch Sử Giao Dịch</h2>
-                                <div className="bg-white rounded-[2rem] border overflow-hidden shadow-sm">
-                                    <table className="w-full text-left">
-                                        <thead className="bg-slate-50 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b">
-                                            <tr><th className="px-6 py-5">Ngày</th><th className="px-6 py-5">Nội Dung</th><th className="px-6 py-5 text-center">Trạng Thái</th></tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {transactionHistory.filter(h => h.user === loggedUserData?.username || loggedUserData?.role === 'admin').map(h => (
-                                                <tr key={h.id} className="text-xs hover:bg-slate-50 transition-colors">
-                                                    <td className="px-6 py-5 text-slate-500 font-bold">{h.date}</td>
-                                                    <td className="px-6 py-5">
-                                                        <p className="font-black uppercase text-slate-800">{h.category === 'deposit' ? `Nạp: ${h.method}` : `Mua: ${h.items.length} món`}</p>
-                                                        <p className="text-red-600 font-bold">{(h.receivedValue || h.total).toLocaleString()}đ</p>
-                                                    </td>
-                                                    <td className="px-6 py-5 text-center">
-                                                        <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${h.status === 'pending' ? 'bg-orange-100 text-orange-600' : 'bg-emerald-100 text-emerald-600'}`}>
-                                                            {h.status === 'pending' ? 'Chờ duyệt' : 'Thành công'}
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        )}
-                    </main>
-
-                    {isCartOpen && (
-                        <div className="fixed inset-0 z-[100] flex justify-end">
-                            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsCartOpen(false)}></div>
-                            <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
-                                <div className="p-8 border-b bg-slate-900 text-white flex justify-between items-center">
-                                    <h2 className="font-black uppercase italic text-xl flex items-center gap-2"><i className="fa-solid fa-cart-shopping"></i> Giỏ Hàng</h2>
-                                    <button onClick={() => setIsCartOpen(false)}><i className="fa-solid fa-xmark text-2xl"></i></button>
-                                </div>
-                                <div className="flex-grow overflow-y-auto p-6 space-y-4 custom-scrollbar">
-                                    {cart.map(i => (
-                                        <div key={i.id} className="bg-slate-50 p-4 rounded-3xl border flex gap-4">
-                                            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center p-2 border"><img src={i.img} className="w-full h-full object-contain" /></div>
-                                            <div className="flex-grow">
-                                                <p className="text-xs font-black text-slate-800 uppercase italic line-clamp-1">{i.name}</p>
-                                                <div className="flex justify-between items-center mt-2">
-                                                    <p className="text-sm font-black text-red-600">{(i.price * i.qty).toLocaleString()}đ</p>
-                                                    <div className="flex items-center gap-2">
-                                                        <button onClick={() => setCart(cart.map(x => x.id === i.id ? {...x, qty: Math.max(0, x.qty - 1)} : x).filter(x => x.qty > 0))} className="w-8 h-8 bg-white border rounded-lg">-</button>
-                                                        <span className="text-xs font-black">{i.qty}</span>
-                                                        <button onClick={() => handleAddToCart(i)} className="w-8 h-8 bg-white border rounded-lg">+</button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                                {cart.length > 0 && (
-                                    <div className="p-8 border-t space-y-6">
-                                        <div className="bg-blue-50 p-5 rounded-3xl border">
-                                            <label className="text-[10px] font-black text-blue-800 uppercase mb-2 block">Roblox ID Nhận Đồ</label>
-                                            <input value={robloxUsername} onChange={e => setRobloxUsername(e.target.value)} placeholder="Nhập tên đăng nhập Roblox..." className="w-full p-4 bg-white border rounded-2xl font-black text-sm outline-none shadow-sm" />
-                                        </div>
-                                        <button onClick={checkout} className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl uppercase shadow-xl hover:bg-blue-700">Xác nhận thanh toán: {(cart.reduce((s,i) => s + (i.price * i.qty), 0)).toLocaleString()}đ</button>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    <footer className="bg-slate-900 text-white mt-10 pt-16 pb-8 px-4 border-t-4 border-blue-600">
-                        <div className="max-w-7xl mx-auto grid md:grid-cols-3 gap-12 border-b border-white/10 pb-12 text-center md:text-left">
-                            <div className="space-y-6">
-                                <div className="flex items-center gap-2 justify-center md:justify-start">
-                                    <div className="bg-blue-600 p-2.5 rounded-xl"><i className="fa-solid fa-anchor text-[24px]"></i></div>
-                                    <span className="text-3xl font-black uppercase italic tracking-tighter">Sailor<span className="text-blue-500">Shop</span></span>
-                                </div>
-                                <p className="text-slate-400 text-sm font-medium">Hệ thống Sailor Piece uy tín hàng đầu. Cam kết bảo mật, đồng bộ dữ liệu đám mây.</p>
-                            </div>
-                        </div>
-                        <p className="text-center text-[10px] font-black text-slate-600 uppercase tracking-widest mt-8 italic">© 2024 Sailor Piece Market. Designed by Yewan.</p>
-                    </footer>
+                     {cart.length > 0 && (
+                       <div className="p-8 border-t bg-white shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)]">
+                          <div className="bg-blue-50/50 p-5 rounded-3xl border border-blue-100 mb-6">
+                            <label className="flex items-center gap-2 text-[10px] font-black text-blue-800 uppercase tracking-widest mb-2"><i className="fa-solid fa-user text-[14px]"></i> ID Roblox Nhận Đồ</label>
+                            <input 
+                              type="text" 
+                              placeholder="Nhập tên đăng nhập Roblox..." 
+                              value={robloxUsername} 
+                              onChange={e => setRobloxUsername(e.target.value)}
+                              className="w-full p-4 bg-white border border-blue-100 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500 font-bold shadow-sm"
+                            />
+                          </div>
+                          <div className="flex justify-between items-end mb-6 px-2">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">TỔNG THANH TOÁN</span>
+                            <span className="text-3xl font-black text-red-600 tracking-tighter">{cart.reduce((s, i) => s + i.price * i.qty, 0).toLocaleString()}đ</span>
+                          </div>
+                          <button 
+                            onClick={checkout} 
+                            disabled={!user}
+                            className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl shadow-xl shadow-blue-200 uppercase text-sm tracking-widest disabled:bg-slate-300 transition-all hover:bg-blue-700 active:scale-[0.98]"
+                          >
+                            {!user ? 'ĐĂNG NHẬP ĐỂ MUA' : 'XÁC NHẬN THANH TOÁN'}
+                          </button>
+                       </div>
+                     )}
+                  </div>
                 </div>
-            );
+              )}
+
+              {/* Footer */}
+              <footer className="bg-slate-900 text-white mt-10 pt-16 pb-8 px-4 border-t-4 border-blue-600">
+                <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-12 border-b border-white/10 pb-12">
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-2">
+                      <div className="bg-blue-600 p-2.5 rounded-xl shadow-lg shadow-blue-500/20 w-11 h-11 flex items-center justify-center"><i className="fa-solid fa-anchor text-[24px]"></i></div>
+                      <span className="text-3xl font-black uppercase italic tracking-tighter leading-none">Sailor<span className="text-blue-500">Shop</span></span>
+                    </div>
+                    <p className="text-slate-400 text-sm leading-relaxed font-medium">Đối tác cung cấp vật phẩm uy tín hàng đầu. Cam kết bảo mật, giao hàng trực tiếp nhanh chóng.</p>
+                  </div>
+                  
+                  <div className="space-y-6">
+                    <h4 className="font-black uppercase italic text-blue-500 tracking-widest text-sm">Hỗ Trợ Khách Hàng</h4>
+                    <div className="space-y-4">
+                       <a href={FANPAGE_URL} target="_blank" rel="noreferrer" className="flex items-center gap-4 group cursor-pointer bg-white/5 p-3 rounded-2xl hover:bg-white/10 transition-colors">
+                          <div className="w-12 h-12 bg-blue-600 text-white rounded-xl flex items-center justify-center shadow-lg"><i className="fa-brands fa-facebook-messenger text-[22px]"></i></div>
+                          <div>
+                            <p className="text-xs font-black uppercase text-slate-100">Chat Với Fanpage</p>
+                            <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mt-0.5">Hỗ trợ từ 18:00 - 23:00</p>
+                          </div>
+                       </a>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <h4 className="font-black uppercase italic text-blue-500 tracking-widest text-sm">Liên Kết Nhanh</h4>
+                    <div className="grid grid-cols-2 gap-y-4 gap-x-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                       <span className="hover:text-blue-400 transition-colors cursor-pointer" onClick={() => setActiveTab('home')}>Trang chủ</span>
+                       <span className="hover:text-blue-400 transition-colors cursor-pointer" onClick={() => setActiveTab('shop')}>Sản phẩm</span>
+                       <span className="hover:text-blue-400 transition-colors cursor-pointer" onClick={() => setActiveTab('deposit')}>Nạp tiền</span>
+                       <span className="hover:text-blue-400 transition-colors cursor-pointer" onClick={() => setActiveTab('history')}>Lịch sử</span>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-center text-[10px] font-black text-slate-600 uppercase tracking-widest mt-8 italic">
+                  © 2024 Sailor Piece Market. All Rights Reserved. Designed by Yewan.
+                </p>
+              </footer>
+            </div>
+          );
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
+
     </script>
+    <script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.x/firebase-app.js";
+  import { getFirestore, collection, addDoc } from "https://www.gstatic.com/firebasejs/10.x/firebase-firestore.js";
+
+  // Thông tin cấu hình bạn đã copy ở Bước 2
+ const firebaseConfig = {
+  apiKey: "AIzaSyCJc-eSqmw5XwZZUVHA7GbQnTF6k36MmJE",
+  authDomain: "sailorshop-afc79.firebaseapp.com",
+  projectId: "sailorshop-afc79",
+  storageBucket: "sailorshop-afc79.firebasestorage.app",
+  messagingSenderId: "383701342105",
+  appId: "1:383701342105:web:77e04062ceaf2fd895e508",
+  measurementId: "G-Q881Z569QH"
+};
+
+  // Khởi tạo Firebase
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app); // Sử dụng Firestore để lưu data bán hàng
+</script>
 </body>
 </html>
