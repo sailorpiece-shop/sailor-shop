@@ -4,22 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sailor Piece Shop</title>
-
-    <!-- Tích hợp Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Tích hợp FontAwesome để hiển thị Icon -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
-    <!-- Tích hợp React và ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    
-    <!-- Tích hợp Babel để đọc mã JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
     <style>
-        /* Tùy chỉnh thanh cuộn cho đẹp */
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 8px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
@@ -32,31 +22,49 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
+        // Hàm hỗ trợ lấy dữ liệu từ Local Storage
+        const getSavedData = (key, initialValue) => {
+            const saved = localStorage.getItem(key);
+            if (saved) {
+                try { return JSON.parse(saved); } catch (e) { return initialValue; }
+            }
+            return initialValue;
+        };
+
         const App = () => {
-          // --- Khởi tạo dữ liệu hệ thống ---
           const [activeTab, setActiveTab] = useState('home');
           const [isCartOpen, setIsCartOpen] = useState(false);
           const [notification, setNotification] = useState(null);
-          const [user, setUser] = useState(null);
+          
           const [authMode, setAuthMode] = useState('login'); 
           const [authForm, setAuthForm] = useState({ username: '', password: '', confirmPassword: '' });
-          const [registeredUsers, setRegisteredUsers] = useState([]); 
 
-          // --- State Sản phẩm ---
-          const [items, setItems] = useState([
+          // --- STATE CÓ TÍCH HỢP LOCAL STORAGE ---
+          const [user, setUser] = useState(() => getSavedData('sp_user', null));
+          const [registeredUsers, setRegisteredUsers] = useState(() => getSavedData('sp_users', []));
+          
+          const defaultItems = [
             { id: 1, name: "Trái Ác Quỷ: Mochi Mochi", category: "Item", price: 50000, stock: 10, img: "https://api.dicebear.com/7.x/shapes/svg?seed=mochi", desc: "Hệ Paramecia đặc biệt cực mạnh." },
             { id: 2, name: "Thanh Kiếm: Yoru", category: "Sword", price: 150000, stock: 5, img: "https://api.dicebear.com/7.x/shapes/svg?seed=yoru", desc: "Thanh kiếm của Mắt Diều Hâu." },
             { id: 3, name: "Gói 1,000,000 Beli", category: "Item", price: 20000, stock: 999, img: "https://api.dicebear.com/7.x/shapes/svg?seed=beli", desc: "Tiền tệ cơ bản trong game." },
             { id: 4, name: "Haki Quan Sát V2", category: "Gamepass", price: 250000, stock: 2, img: "https://api.dicebear.com/7.x/shapes/svg?seed=haki", desc: "Nâng cấp khả năng né tránh." },
-          ]);
+          ];
+          const [items, setItems] = useState(() => getSavedData('sp_items', defaultItems));
+          
+          const [pendingRequests, setPendingRequests] = useState(() => getSavedData('sp_pending', [])); 
+          const [transactionHistory, setTransactionHistory] = useState(() => getSavedData('sp_history', []));
+          const [cart, setCart] = useState(() => getSavedData('sp_cart', []));
 
-          // --- State Quản lý Giao dịch ---
-          const [pendingRequests, setPendingRequests] = useState([]); 
-          const [transactionHistory, setTransactionHistory] = useState([]);
-          const [cart, setCart] = useState([]);
+          // --- LƯU DỮ LIỆU KHI CÓ THAY ĐỔI ---
+          useEffect(() => { localStorage.setItem('sp_user', JSON.stringify(user)); }, [user]);
+          useEffect(() => { localStorage.setItem('sp_users', JSON.stringify(registeredUsers)); }, [registeredUsers]);
+          useEffect(() => { localStorage.setItem('sp_items', JSON.stringify(items)); }, [items]);
+          useEffect(() => { localStorage.setItem('sp_pending', JSON.stringify(pendingRequests)); }, [pendingRequests]);
+          useEffect(() => { localStorage.setItem('sp_history', JSON.stringify(transactionHistory)); }, [transactionHistory]);
+          useEffect(() => { localStorage.setItem('sp_cart', JSON.stringify(cart)); }, [cart]);
+
+          // Các State dùng tạm thời không cần lưu
           const [robloxUsername, setRobloxUsername] = useState('');
-
-          // --- State Tùy chỉnh Admin ---
           const [newItem, setNewItem] = useState({ name: '', price: '', stock: '', category: 'Sword', desc: '' });
           const [depositTab, setDepositTab] = useState('bank');
           const [targetUser, setTargetUser] = useState('');
@@ -65,14 +73,16 @@
           const [selectedCategory, setSelectedCategory] = useState('All');
           const [selectedCardValue, setSelectedCardValue] = useState(10000);
           
-          // State lưu trữ câu thông báo sau khi mua hàng & Banner
-          const [checkoutMessage, setCheckoutMessage] = useState("Cảm ơn bạn đã đặt hàng thành công!\n\nVui lòng nhắn tin cho Admin qua Fanpage kèm theo [Tên tài khoản Roblox] để được giao đồ vào game nhanh nhất nhé!");
-          const [showCheckoutSuccess, setShowCheckoutSuccess] = useState(false);
-          const [bannerInfo, setBannerInfo] = useState({
+          const [checkoutMessage, setCheckoutMessage] = useState(() => getSavedData('sp_msg', "Cảm ơn bạn đã đặt hàng thành công!\n\nVui lòng nhắn tin cho Admin qua Fanpage kèm theo [Tên tài khoản Roblox] để được giao đồ vào game nhanh nhất nhé!"));
+          useEffect(() => { localStorage.setItem('sp_msg', JSON.stringify(checkoutMessage)); }, [checkoutMessage]);
+
+          const [bannerInfo, setBannerInfo] = useState(() => getSavedData('sp_banner', {
             title: "CHINH PHỤC \n ĐẠI HẢI TRÌNH",
             subtitle: "Hệ thống phân phối vật phẩm Sailor Piece chuyên nghiệp. Giao đồ nhanh qua Roblox ID của bạn."
-          });
+          }));
+          useEffect(() => { localStorage.setItem('sp_banner', JSON.stringify(bannerInfo)); }, [bannerInfo]);
 
+          const [showCheckoutSuccess, setShowCheckoutSuccess] = useState(false);
           const FANPAGE_URL = "https://www.facebook.com/share/17KdJjb5XM/";
           const QR_IMAGE_URL = "https://raw.githubusercontent.com/yewan-shop/assets/main/qr_mb.jpg"; 
 
@@ -201,7 +211,17 @@
 
             setPendingRequests([orderData, ...pendingRequests]);
             setTransactionHistory([orderData, ...transactionHistory]);
-            setUser({...user, balance: user.balance - total});
+            
+            // Cập nhật số dư cho session hiện tại VÀ trong danh sách user
+            const updatedBalance = user.balance - total;
+            setUser({...user, balance: updatedBalance});
+            
+            const userIndex = registeredUsers.findIndex(u => u.username === user.name);
+            if(userIndex !== -1) {
+               const updatedUsers = [...registeredUsers];
+               updatedUsers[userIndex].balance = updatedBalance;
+               setRegisteredUsers(updatedUsers);
+            }
             
             const updatedItems = items.map(item => {
               const purchased = cart.find(c => c.id === item.id);
@@ -288,6 +308,11 @@
             const updatedUsers = [...registeredUsers];
             updatedUsers[userIndex].balance += amount;
             setRegisteredUsers(updatedUsers);
+            
+            // Cập nhật session admin nếu admin tự cộng cho chính mình (để test)
+            if (user && user.name === targetUser) {
+                setUser(prev => ({...prev, balance: prev.balance + amount}));
+            }
 
             const transData = {
               id: Date.now(),
