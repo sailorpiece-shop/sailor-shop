@@ -559,6 +559,25 @@
                                                 </button>
                                             </form>
                                         </div>
+
+                                        <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
+                                            <h3 className="font-black text-xs text-slate-400 mb-6 uppercase flex items-center gap-2"><i className="fa-solid fa-pen-to-square"></i> Cài đặt Giao diện</h3>
+                                            <div className="space-y-4">
+                                                <div>
+                                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Tiêu đề Banner</label>
+                                                    <textarea value={shopSettings.bannerTitle} onChange={e => setShopSettings({...shopSettings, bannerTitle: e.target.value})} rows="2" className="w-full p-3 border rounded-xl text-xs font-bold bg-slate-50 outline-none resize-none"></textarea>
+                                                </div>
+                                                <div>
+                                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Mô tả Banner</label>
+                                                    <textarea value={shopSettings.bannerSubtitle} onChange={e => setShopSettings({...shopSettings, bannerSubtitle: e.target.value})} rows="3" className="w-full p-3 border rounded-xl text-xs font-bold bg-slate-50 outline-none resize-none"></textarea>
+                                                </div>
+                                                <div>
+                                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Lời nhắn mua hàng xong</label>
+                                                    <textarea value={shopSettings.checkoutMsg} onChange={e => setShopSettings({...shopSettings, checkoutMsg: e.target.value})} rows="3" className="w-full p-3 border rounded-xl text-xs font-bold bg-slate-50 outline-none resize-none"></textarea>
+                                                </div>
+                                                <button onClick={() => { saveToCloud({ settings: shopSettings }); showNotify("Đã lưu cài đặt shop!"); }} className="w-full py-3 bg-blue-600 text-white font-black text-[10px] uppercase rounded-xl shadow-lg shadow-blue-100">Lưu Cài Đặt</button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
