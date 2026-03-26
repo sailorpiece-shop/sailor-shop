@@ -241,7 +241,7 @@
                                 )}
                                 <button onClick={() => setIsCartOpen(true)} className="relative p-2.5 bg-slate-100 rounded-2xl border">
                                     <i className="fa-solid fa-cart-shopping"></i>
-                                    {cart.length > 0 && <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[9px] w-5 h-5 flex items-center justify-center rounded-full border-2 border-white font-bold">{cart.length}</span>}
+                                    {cart.length > 0 && <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[9px] font-black w-5 h-5 flex items-center justify-center rounded-full border-2 border-white">{cart.length}</span>}
                                 </button>
                             </div>
                         </div>
@@ -483,10 +483,11 @@
                                                         <img src={it.img || 'https://api.dicebear.com/7.x/shapes/svg?seed=none'} className="w-16 h-16 rounded-2xl bg-white border p-1 object-contain" />
                                                         <div className="flex-grow">
                                                             <p className="text-[10px] font-black uppercase text-blue-600 mb-1">{it.category}</p>
-                                                            <p className="font-black uppercase italic text-xs mb-2">{it.name}</p>
-                                                            <div className="grid grid-cols-2 gap-2">
-                                                                <div><label className="text-[8px] uppercase font-black text-slate-400 block mb-0.5">Giá</label><p className="text-xs font-black">{it.price.toLocaleString()}đ</p></div>
-                                                                <div><label className="text-[8px] uppercase font-black text-slate-400 block mb-0.5">Kho</label><p className="text-xs font-black">{it.stock}</p></div>
+                                                            <input type="text" value={it.name} onChange={e => saveToCloud({ items: items.map(x => x.id === it.id ? {...x, name: e.target.value} : x) })} className="w-full bg-transparent font-black uppercase italic text-xs mb-2 outline-none border-b border-transparent focus:border-blue-400" />
+                                                            <div className="grid grid-cols-3 gap-2">
+                                                                <div><label className="text-[8px] uppercase font-black text-slate-400 block mb-0.5">Giá</label><input type="number" value={it.price} onChange={e => saveToCloud({ items: items.map(x => x.id === it.id ? {...x, price: parseInt(e.target.value) || 0} : x) })} className="w-full p-2 text-[10px] font-black border rounded-lg bg-white" /></div>
+                                                                <div><label className="text-[8px] uppercase font-black text-slate-400 block mb-0.5">Kho</label><input type="number" value={it.stock} onChange={e => saveToCloud({ items: items.map(x => x.id === it.id ? {...x, stock: parseInt(e.target.value) || 0} : x) })} className="w-full p-2 text-[10px] font-black border rounded-lg bg-white" /></div>
+                                                                <div><label className="text-[8px] uppercase font-black text-slate-400 block mb-0.5">Link Ảnh</label><input type="text" value={it.img} onChange={e => saveToCloud({ items: items.map(x => x.id === it.id ? {...x, img: e.target.value} : x) })} className="w-full p-2 text-[10px] font-black border rounded-lg bg-white" placeholder="URL..." /></div>
                                                             </div>
                                                         </div>
                                                         <button onClick={() => saveToCloud({ items: items.filter(x => x.id !== it.id) })} className="text-slate-300 hover:text-red-500 p-2"><i className="fa-solid fa-trash-can"></i></button>
@@ -507,15 +508,18 @@
                                                     price: parseInt(e.target.price.value), 
                                                     stock: parseInt(e.target.stock.value), 
                                                     category: e.target.category.value, 
-                                                    img: `https://api.dicebear.com/7.x/shapes/svg?seed=${e.target.name.value}`
+                                                    img: e.target.img.value || `https://api.dicebear.com/7.x/shapes/svg?seed=${e.target.name.value}`
                                                 };
                                                 await saveToCloud({ items: [p, ...items] });
                                                 e.target.reset();
                                                 showNotify("Đã thêm!");
                                             }} className="space-y-4">
                                                 <input name="name" placeholder="Tên vật phẩm..." className="w-full p-3 text-xs border rounded-xl font-black outline-none bg-slate-50" required />
-                                                <input name="price" type="number" placeholder="Giá bán..." className="w-full p-3 text-xs border rounded-xl font-black outline-none bg-slate-50" required />
-                                                <input name="stock" type="number" placeholder="Số lượng..." className="w-full p-3 text-xs border rounded-xl font-black outline-none bg-slate-50" required />
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <input name="price" type="number" placeholder="Giá bán..." className="w-full p-3 text-xs border rounded-xl font-black outline-none bg-slate-50" required />
+                                                    <input name="stock" type="number" placeholder="Số lượng..." className="w-full p-3 text-xs border rounded-xl font-black outline-none bg-slate-50" required />
+                                                </div>
+                                                <input name="img" placeholder="Link ảnh (URL)..." className="w-full p-3 text-xs border rounded-xl font-black outline-none bg-slate-50" />
                                                 <select name="category" className="w-full p-3 text-xs border rounded-xl font-black outline-none bg-slate-50">
                                                     <option>Sword</option><option>Item</option><option>Melee</option><option>Gamepass</option>
                                                 </select>
@@ -524,11 +528,25 @@
                                         </div>
 
                                         <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
-                                            <h3 className="font-black text-xs text-slate-400 mb-6 uppercase">Cài đặt shop</h3>
+                                            <h3 className="font-black text-xs text-slate-400 mb-6 uppercase flex items-center gap-2"><i className="fa-solid fa-qrcode"></i> Cài đặt QR & Thanh toán</h3>
                                             <div className="space-y-4">
-                                                <input value={shopSettings.accountNumber} onChange={e => setShopSettings({...shopSettings, accountNumber: e.target.value})} placeholder="Số tài khoản" className="w-full p-3 border rounded-xl text-xs font-bold bg-slate-50" />
-                                                <input value={shopSettings.qrUrl} onChange={e => setShopSettings({...shopSettings, qrUrl: e.target.value})} placeholder="Link QR" className="w-full p-3 border rounded-xl text-xs font-bold bg-slate-50" />
-                                                <button onClick={() => saveToCloud({ settings: shopSettings })} className="w-full py-3 bg-slate-900 text-white font-black text-[10px] uppercase rounded-xl">Lưu Thay Đổi</button>
+                                                <div>
+                                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Số tài khoản / Ngân hàng</label>
+                                                    <input value={shopSettings.accountNumber} onChange={e => setShopSettings({...shopSettings, accountNumber: e.target.value})} placeholder="Số tài khoản" className="w-full p-3 border rounded-xl text-xs font-bold bg-slate-50" />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Link ảnh mã QR</label>
+                                                    <input value={shopSettings.qrUrl} onChange={e => setShopSettings({...shopSettings, qrUrl: e.target.value})} placeholder="Dán link ảnh QR vào đây..." className="w-full p-3 border rounded-xl text-xs font-bold bg-slate-50" />
+                                                </div>
+                                                
+                                                {shopSettings.qrUrl && (
+                                                    <div className="p-2 border rounded-2xl bg-slate-50 flex flex-col items-center">
+                                                        <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Xem trước ảnh QR:</p>
+                                                        <img src={shopSettings.qrUrl} className="w-32 h-32 object-contain rounded-lg shadow-sm border bg-white" alt="QR Preview" />
+                                                    </div>
+                                                )}
+
+                                                <button onClick={() => { saveToCloud({ settings: shopSettings }); showNotify("Đã lưu cài đặt shop!"); }} className="w-full py-3 bg-blue-600 text-white font-black text-[10px] uppercase rounded-xl shadow-lg shadow-blue-100">Lưu Thay Đổi</button>
                                             </div>
                                         </div>
                                     </div>
