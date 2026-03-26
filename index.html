@@ -509,6 +509,37 @@
                                                 ))}
                                             </div>
                                         </div>
+
+                                        <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
+                                            <h3 className="font-black text-xs text-slate-400 mb-6 uppercase flex items-center gap-2"><i className="fa-solid fa-users"></i> Quản lý Tài Khoản</h3>
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                                                {registeredUsers.map(u => (
+                                                    <div key={u.username} className="p-4 bg-slate-50 border rounded-3xl flex items-center gap-4 hover:border-blue-200 transition-all">
+                                                        <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center shrink-0"><i className="fa-solid fa-user"></i></div>
+                                                        <div className="flex-grow">
+                                                            <p className="font-black uppercase italic text-xs mb-1">{u.username}</p>
+                                                            <div className="flex items-center gap-2">
+                                                                <input 
+                                                                    type="number" 
+                                                                    defaultValue={u.balance} 
+                                                                    onBlur={e => {
+                                                                        const newBalance = parseInt(e.target.value) || 0;
+                                                                        if (newBalance !== u.balance) {
+                                                                            saveToCloud({ users: registeredUsers.map(x => x.username === u.username ? {...x, balance: newBalance} : x) });
+                                                                            showNotify(`Đã cập nhật tiền cho ${u.username}!`);
+                                                                        }
+                                                                    }} 
+                                                                    className="w-full p-2 text-[10px] font-black border rounded-lg bg-white focus:border-blue-400 outline-none text-red-600 shadow-inner" 
+                                                                    title="Sửa số và click ra ngoài để lưu"
+                                                                />
+                                                                <span className="text-[10px] font-black text-slate-400">đ</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {registeredUsers.length === 0 && <p className="text-center text-slate-400 italic py-4 col-span-full">Chưa có tài khoản đăng ký.</p>}
+                                            </div>
+                                        </div>
                                     </div>
 
                                     <div className="space-y-8">
