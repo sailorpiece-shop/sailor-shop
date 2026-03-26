@@ -62,11 +62,7 @@
             const [shopSettings, setShopSettings] = useState({
                 bannerTitle: "CHINH PHỤC \n ĐẠI HẢI TRÌNH",
                 bannerSubtitle: "Hệ thống phân phối vật phẩm Sailor Piece chuyên nghiệp.",
-                checkoutMsg: "Cảm ơn bạn đã đặt hàng! Vui lòng liên hệ Admin qua Fanpage để nhận đồ.",
-                qrUrl: "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=SAILOR_SHOP",
-                accountName: "ADMIN",
-                accountNumber: "0000000000",
-                bankName: "BANK"
+                checkoutMsg: "Cảm ơn bạn đã đặt hàng! Vui lòng liên hệ Admin qua Fanpage để nhận đồ."
             });
 
             const [cart, setCart] = useState([]);
@@ -352,10 +348,10 @@
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                                         <div className="bg-white p-10 rounded-[3rem] shadow-2xl border text-center">
                                             <h2 className="text-2xl font-black uppercase italic border-l-4 border-blue-600 pl-4 text-left mb-6 tracking-tighter">Chuyển Khoản</h2>
-                                            <img src={shopSettings.qrUrl} className="mx-auto rounded-2xl w-64 shadow-md mb-4 border" />
-                                            <p className="font-black uppercase text-lg text-slate-800">{shopSettings.accountName}</p>
-                                            <p className="text-blue-600 font-black text-2xl tracking-tighter">{shopSettings.accountNumber}</p>
-                                            <p className="text-[10px] font-black text-slate-400 uppercase mt-1">{shopSettings.bankName}</p>
+                                            <img src="https://img.vietqr.io/image/MB-0385921454-compact2.jpg?accountName=DO%20KHANH%20HUNG" className="mx-auto rounded-2xl w-64 shadow-md mb-4 border" alt="VietQR MB Bank" />
+                                            <p className="font-black uppercase text-lg text-slate-800">DO KHANH HUNG</p>
+                                            <p className="text-blue-600 font-black text-2xl tracking-tighter">0385921454</p>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase mt-1">MB BANK</p>
                                         </div>
                                         <div className="bg-white p-10 rounded-[3rem] shadow-2xl border flex flex-col justify-center">
                                             <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 mb-6 flex items-start gap-3">
@@ -562,44 +558,6 @@
                                                     {uploadingImg ? 'Đang Tải Ảnh Lên...' : 'Đăng Lên Cửa Hàng'}
                                                 </button>
                                             </form>
-                                        </div>
-
-                                        <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
-                                            <h3 className="font-black text-xs text-slate-400 mb-6 uppercase flex items-center gap-2"><i className="fa-solid fa-qrcode"></i> Cài đặt QR & Thanh toán</h3>
-                                            <div className="space-y-4">
-                                                <div>
-                                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Số tài khoản / Ngân hàng</label>
-                                                    <input value={shopSettings.accountNumber} onChange={e => setShopSettings({...shopSettings, accountNumber: e.target.value})} placeholder="Số tài khoản" className="w-full p-3 border rounded-xl text-xs font-bold bg-slate-50" />
-                                                </div>
-                                                <div className="p-3 border rounded-xl bg-slate-50">
-                                                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2">Ảnh mã QR (Chọn file HOẶC nhập link)</label>
-                                                    <input type="file" accept="image/*" onChange={async (e) => {
-                                                        const file = e.target.files[0];
-                                                        if (file) {
-                                                            showNotify("Đang tải ảnh QR lên...");
-                                                            setUploadingImg(true);
-                                                            const url = await uploadImageToStorage(file);
-                                                            if (url) {
-                                                                setShopSettings({...shopSettings, qrUrl: url});
-                                                                showNotify("Tải ảnh QR thành công!");
-                                                            }
-                                                            setUploadingImg(false);
-                                                        }
-                                                    }} className="w-full text-xs font-bold mb-2 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
-                                                    <input value={shopSettings.qrUrl} onChange={e => setShopSettings({...shopSettings, qrUrl: e.target.value})} placeholder="Hoặc dán link ảnh QR vào đây..." className="w-full p-2 border rounded-lg text-xs font-bold bg-white outline-none" />
-                                                </div>
-                                                
-                                                {shopSettings.qrUrl && (
-                                                    <div className="p-2 border rounded-2xl bg-slate-50 flex flex-col items-center">
-                                                        <p className="text-[9px] font-black text-slate-400 uppercase mb-2">Xem trước ảnh QR:</p>
-                                                        <img src={shopSettings.qrUrl} className="w-32 h-32 object-contain rounded-lg shadow-sm border bg-white" alt="QR Preview" />
-                                                    </div>
-                                                )}
-
-                                                <button disabled={uploadingImg} onClick={() => { saveToCloud({ settings: shopSettings }); showNotify("Đã lưu cài đặt shop!"); }} className="w-full py-3 bg-blue-600 text-white font-black text-[10px] uppercase rounded-xl shadow-lg shadow-blue-100 disabled:bg-slate-400">
-                                                    {uploadingImg ? 'Đang Tải Ảnh...' : 'Lưu Thay Đổi'}
-                                                </button>
-                                            </div>
                                         </div>
                                     </div>
                                 </div>
