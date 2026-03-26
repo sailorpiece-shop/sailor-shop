@@ -13,6 +13,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-storage-compat.js"></script>
 
     <!-- React & Babel -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -80,12 +81,29 @@
             const [depositType, setDepositType] = useState('bank'); // 'bank' hoặc 'card'
             const [cardValue, setCardValue] = useState(10000);
 
+            const [uploadingImg, setUploadingImg] = useState(false); // Trạng thái đang tải ảnh
+
             const appId = "sailor-shop-afc79-main"; 
             const FANPAGE_URL = "https://www.facebook.com/share/17KdJjb5XM/";
 
             const showNotify = (msg) => {
                 setNotification(msg);
                 setTimeout(() => setNotification(null), 3000);
+            };
+
+            // Hàm xử lý tải ảnh lên Firebase Storage
+            const uploadImageToStorage = async (file) => {
+                if (!file) return null;
+                try {
+                    const storageRef = firebase.storage().ref();
+                    const fileRef = storageRef.child(`shop_images/${Date.now()}_${file.name}`);
+                    await fileRef.put(file);
+                    return await fileRef.getDownloadURL();
+                } catch (error) {
+                    showNotify("Lỗi tải ảnh. Vui lòng kiểm tra quyền Storage trên Firebase!");
+                    console.error("Storage Error:", error);
+                    return null;
+                }
             };
 
             useEffect(() => {
@@ -502,16 +520,28 @@
                                             <h3 className="font-black text-xs text-slate-400 uppercase mb-4 italic">Thêm Sản Phẩm Mới</h3>
                                             <form onSubmit={async (e) => {
                                                 e.preventDefault();
+                                                setUploadingImg(true); // Bật trạng thái loading
+                                                
+                                                let imageUrl = e.target.imgUrl.value;
+                                                const fileInput = e.target.imgFile.files[0];
+                                                
+                                                // Nếu có chọn file ảnh từ máy tính -> Tải lên Cloud
+                                                if (fileInput) {
+                                                    const uploadedUrl = await uploadImageToStorage(fileInput);
+                                                    if (uploadedUrl) imageUrl = uploadedUrl;
+                                                }
+
                                                 const p = { 
                                                     id: Date.now(), 
                                                     name: e.target.name.value, 
                                                     price: parseInt(e.target.price.value), 
                                                     stock: parseInt(e.target.stock.value), 
                                                     category: e.target.category.value, 
-                                                    img: e.target.img.value || `https://api.dicebear.com/7.x/shapes/svg?seed=${e.target.name.value}`
+                                                    img: imageUrl || `https://api.dicebear.com/7.x/shapes/svg?seed=${e.target.name.value}`
                                                 };
                                                 await saveToCloud({ items: [p, ...items] });
                                                 e.target.reset();
+                                                setUploadingImg(false); // Tắt loading
                                                 showNotify("Đã thêm!");
                                             }} className="space-y-4">
                                                 <input name="name" placeholder="Tên vật phẩm..." className="w-full p-3 text-xs border rounded-xl font-black outline-none bg-slate-50" required />
@@ -519,11 +549,18 @@
                                                     <input name="price" type="number" placeholder="Giá bán..." className="w-full p-3 text-xs border rounded-xl font-black outline-none bg-slate-50" required />
                                                     <input name="stock" type="number" placeholder="Số lượng..." className="w-full p-3 text-xs border rounded-xl font-black outline-none bg-slate-50" required />
                                                 </div>
-                                                <input name="img" placeholder="Link ảnh (URL)..." className="w-full p-3 text-xs border rounded-xl font-black outline-none bg-slate-50" />
+                                                <div className="p-3 border rounded-xl bg-slate-50">
+                                                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2">Hình ảnh sản phẩm (Chọn file HOẶC nhập link)</label>
+                                                    <input type="file" name="imgFile" accept="image/*" className="w-full text-xs font-bold mb-2 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
+                                                    <input name="imgUrl" placeholder="Hoặc dán link ảnh (URL) vào đây..." className="w-full p-2 text-xs border rounded-lg font-black outline-none bg-white" />
+                                                </div>
                                                 <select name="category" className="w-full p-3 text-xs border rounded-xl font-black outline-none bg-slate-50">
                                                     <option>Sword</option><option>Item</option><option>Melee</option><option>Gamepass</option>
                                                 </select>
-                                                <button className="w-full py-4 bg-blue-600 text-white font-black uppercase text-[10px] rounded-xl shadow-xl shadow-blue-100">Đăng Lên Cửa Hàng</button>
+                                                <button disabled={uploadingImg} className="w-full py-4 bg-blue-600 text-white font-black uppercase text-[10px] rounded-xl shadow-xl shadow-blue-100 flex items-center justify-center gap-2 disabled:bg-slate-400 transition-all">
+                                                    {uploadingImg ? <i className="fa-solid fa-circle-notch animate-spin"></i> : null}
+                                                    {uploadingImg ? 'Đang Tải Ảnh Lên...' : 'Đăng Lên Cửa Hàng'}
+                                                </button>
                                             </form>
                                         </div>
 
@@ -534,9 +571,22 @@
                                                     <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Số tài khoản / Ngân hàng</label>
                                                     <input value={shopSettings.accountNumber} onChange={e => setShopSettings({...shopSettings, accountNumber: e.target.value})} placeholder="Số tài khoản" className="w-full p-3 border rounded-xl text-xs font-bold bg-slate-50" />
                                                 </div>
-                                                <div>
-                                                    <label className="text-[10px] font-black uppercase text-slate-400 ml-1">Link ảnh mã QR</label>
-                                                    <input value={shopSettings.qrUrl} onChange={e => setShopSettings({...shopSettings, qrUrl: e.target.value})} placeholder="Dán link ảnh QR vào đây..." className="w-full p-3 border rounded-xl text-xs font-bold bg-slate-50" />
+                                                <div className="p-3 border rounded-xl bg-slate-50">
+                                                    <label className="text-[10px] font-black uppercase text-slate-400 block mb-2">Ảnh mã QR (Chọn file HOẶC nhập link)</label>
+                                                    <input type="file" accept="image/*" onChange={async (e) => {
+                                                        const file = e.target.files[0];
+                                                        if (file) {
+                                                            showNotify("Đang tải ảnh QR lên...");
+                                                            setUploadingImg(true);
+                                                            const url = await uploadImageToStorage(file);
+                                                            if (url) {
+                                                                setShopSettings({...shopSettings, qrUrl: url});
+                                                                showNotify("Tải ảnh QR thành công!");
+                                                            }
+                                                            setUploadingImg(false);
+                                                        }
+                                                    }} className="w-full text-xs font-bold mb-2 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" />
+                                                    <input value={shopSettings.qrUrl} onChange={e => setShopSettings({...shopSettings, qrUrl: e.target.value})} placeholder="Hoặc dán link ảnh QR vào đây..." className="w-full p-2 border rounded-lg text-xs font-bold bg-white outline-none" />
                                                 </div>
                                                 
                                                 {shopSettings.qrUrl && (
@@ -546,7 +596,9 @@
                                                     </div>
                                                 )}
 
-                                                <button onClick={() => { saveToCloud({ settings: shopSettings }); showNotify("Đã lưu cài đặt shop!"); }} className="w-full py-3 bg-blue-600 text-white font-black text-[10px] uppercase rounded-xl shadow-lg shadow-blue-100">Lưu Thay Đổi</button>
+                                                <button disabled={uploadingImg} onClick={() => { saveToCloud({ settings: shopSettings }); showNotify("Đã lưu cài đặt shop!"); }} className="w-full py-3 bg-blue-600 text-white font-black text-[10px] uppercase rounded-xl shadow-lg shadow-blue-100 disabled:bg-slate-400">
+                                                    {uploadingImg ? 'Đang Tải Ảnh...' : 'Lưu Thay Đổi'}
+                                                </button>
                                             </div>
                                         </div>
                                     </div>
