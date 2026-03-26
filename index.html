@@ -3,797 +3,592 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sailor Piece Shop - Full System</title>
+    <title>Sailor Piece Shop - Cloud Sync</title>
+
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+
+    <!-- Firebase SDK v10 Compat (Dùng bản compat để dễ tích hợp vào 1 file HTML) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
     <!-- React & Babel -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-    <!-- Firebase SDK -->
-    <script type="importmap">
-    {
-      "imports": {
-        "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
-        "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
-        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"
-      }
-    }
-    </script>
 
     <style>
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 8px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        .fade-in { animation: fadeIn 0.3s ease-in-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .animate-fade-in { animation: fadeIn 0.5s ease-out; }
     </style>
 </head>
-<body class="bg-slate-50 min-h-screen text-slate-800 font-sans custom-scrollbar">
+<body>
     <div id="root"></div>
 
-    <script type="text/babel" data-type="module">
-        import { initializeApp } from "firebase/app";
-        import { 
-            getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, 
-            onAuthStateChanged, signOut 
-        } from "firebase/auth";
-        import { 
-            getFirestore, collection, doc, setDoc, getDoc, addDoc, onSnapshot, 
-            updateDoc, deleteDoc 
-        } from "firebase/firestore";
+    <script type="text/babel">
+        const { useState, useEffect } = React;
 
-        const { useState, useEffect, useMemo } = React;
-
-        // --- CẤU HÌNH FIREBASE ---
-        const firebaseConfig = { 
-            apiKey: "AIzaSyCJc-eSqmw5XwZZUVHA7GbQnTF6k36MmJE", 
-            authDomain: "sailorshop-afc79.firebaseapp.com", 
-            databaseURL: "https://sailorshop-afc79-default-rtdb.asia-southeast1.firebasedatabase.app", 
-            projectId: "sailorshop-afc79", 
-            storageBucket: "sailorshop-afc79.firebasestorage.app", 
-            messagingSenderId: "383701342105", 
-            appId: "1:383701342105:web:77e04062ceaf2fd895e508", 
-            measurementId: "G-Q881Z569QH" 
+        // ==========================================
+        // CẤU HÌNH FIREBASE CỦA BẠN
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyCJc-eSqmw5XwZZUVHA7GbQnTF6k36MmJE",
+            authDomain: "sailorshop-afc79.firebaseapp.com",
+            databaseURL: "https://sailorshop-afc79-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "sailorshop-afc79",
+            storageBucket: "sailorshop-afc79.firebasestorage.app",
+            messagingSenderId: "383701342105",
+            appId: "1:383701342105:web:77e04062ceaf2fd895e508",
+            measurementId: "G-Q881Z569QH"
         };
 
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = "sailorshop-afc79";
-
-        // --- HELPER PATHS (Tuân thủ Rule 1) ---
-        const getPublicPath = (col) => collection(db, 'artifacts', appId, 'public', 'data', col);
-        const getDocPath = (col, id) => doc(db, 'artifacts', appId, 'public', 'data', col, id);
-
         const App = () => {
-            const [authUser, setAuthUser] = useState(null);
-            const [profile, setProfile] = useState(null);
-            const [view, setView] = useState('shop'); // shop, cart, deposit, history, admin
-            const [notif, setNotif] = useState(null);
+            const [activeTab, setActiveTab] = useState('home');
+            const [loggedUserData, setLoggedUserData] = useState(null);
+            const [isLoading, setIsLoading] = useState(true);
+            const [notification, setNotification] = useState(null);
+            
+            // Dữ liệu đồng bộ từ Cloud Firestore
+            const [items, setItems] = useState([]);
+            const [registeredUsers, setRegisteredUsers] = useState([]);
+            const [pendingRequests, setPendingRequests] = useState([]);
+            const [transactionHistory, setTransactionHistory] = useState([]);
+            
+            const [shopSettings, setShopSettings] = useState({
+                bannerTitle: "CHINH PHỤC \n ĐẠI HẢI TRÌNH",
+                bannerSubtitle: "Hệ thống phân phối vật phẩm Sailor Piece chuyên nghiệp.",
+                checkoutMsg: "Cảm ơn bạn đã đặt hàng thành công! Vui lòng liên hệ Admin để nhận đồ.",
+                qrUrl: "https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=SAILOR_SHOP",
+                accountName: "ADMIN",
+                accountNumber: "0000000000",
+                bankName: "BANK"
+            });
 
-            // Dữ liệu từ Firebase
-            const [products, setProducts] = useState([]);
             const [cart, setCart] = useState([]);
-            const [deposits, setDeposits] = useState([]);
-            const [orders, setOrders] = useState([]);
+            const [robloxUsername, setRobloxUsername] = useState('');
+            const [authMode, setAuthMode] = useState('login');
+            const [authForm, setAuthForm] = useState({ username: '', password: '', confirmPassword: '' });
+            const [selectedCategory, setSelectedCategory] = useState('All');
+            const [isCartOpen, setIsCartOpen] = useState(false);
+            const [showCheckoutSuccess, setShowCheckoutSuccess] = useState(false);
 
-            // Thêm state mới cho cài đặt và quản lý user
-            const [settings, setSettings] = useState({ bannerText: 'Hệ thống mua bán vật phẩm tự động', bankQrUrl: '' });
-            const [allUsers, setAllUsers] = useState([]);
+            const appId = "sailor-shop-afc79-v1"; // Định danh ứng dụng trên Firestore
+            const FANPAGE_URL = "https://www.facebook.com/share/17KdJjb5XM/";
 
-            const showNotify = (text) => {
-                setNotif(text);
-                setTimeout(() => setNotif(null), 3000);
+            const showNotify = (msg) => {
+                setNotification(msg);
+                setTimeout(() => setNotification(null), 3000);
             };
 
-            // 1. Lắng nghe Auth & Khởi tạo Profile
+            // 1. KHỞI TẠO & KẾT NỐI FIREBASE
             useEffect(() => {
-                const unsub = onAuthStateChanged(auth, async (user) => {
-                    setAuthUser(user);
-                    if (user) {
-                        const userRef = getDocPath('users', user.uid);
-                        // Đăng ký listener realtime cho Profile
-                        onSnapshot(userRef, (docSnap) => {
-                            if (docSnap.exists()) {
-                                setProfile(docSnap.data());
-                            } else {
-                                // Nếu là tài khoản mới, tạo profile. admin@gmail.com tự động thành admin
-                                const isAdmin = user.email === 'admin@gmail.com';
-                                const newProfile = { 
-                                    email: user.email, 
-                                    balance: 0, 
-                                    role: isAdmin ? 'admin' : 'user',
-                                    uid: user.uid
-                                };
-                                setDoc(userRef, newProfile);
-                                setProfile(newProfile);
-                            }
-                        });
-                    } else {
-                        setProfile(null);
+                const startFirebase = async () => {
+                    try {
+                        if (!firebase.apps.length) {
+                            firebase.initializeApp(firebaseConfig);
+                        }
+                        
+                        const db = firebase.firestore();
+                        const auth = firebase.auth();
+
+                        // Đăng nhập ẩn danh để có quyền truy cập Firestore
+                        await auth.signInAnonymously();
+
+                        // Lắng nghe dữ liệu thời gian thực từ Firestore
+                        // Path: /artifacts/{appId}/public/data
+                        const unsub = db.collection('artifacts').doc(appId).collection('public').doc('data')
+                            .onSnapshot((snap) => {
+                                if (snap.exists) {
+                                    const data = snap.data();
+                                    setItems(data.items || []);
+                                    setRegisteredUsers(data.users || []);
+                                    setPendingRequests(data.requests || []);
+                                    setTransactionHistory(data.history || []);
+                                    if (data.settings) setShopSettings(prev => ({ ...prev, ...data.settings }));
+                                } else {
+                                    // Khởi tạo dữ liệu mẫu nếu database trống
+                                    db.collection('artifacts').doc(appId).collection('public').doc('data').set({
+                                        items: [
+                                            { id: 1, name: "Trái Ác Quỷ: Mochi", category: "Item", price: 50000, stock: 10, img: "https://api.dicebear.com/7.x/shapes/svg?seed=mochi" },
+                                            { id: 2, name: "Thanh Kiếm: Yoru", category: "Sword", price: 150000, stock: 5, img: "https://api.dicebear.com/7.x/shapes/svg?seed=yoru" }
+                                        ],
+                                        users: [],
+                                        requests: [],
+                                        history: [],
+                                        settings: shopSettings
+                                    });
+                                }
+                                setIsLoading(false);
+                            }, (err) => {
+                                console.error("Firestore Listen Error:", err);
+                                showNotify("Lỗi kết nối dữ liệu!");
+                                setIsLoading(false);
+                            });
+
+                        // Khôi phục session từ LocalStorage
+                        const saved = localStorage.getItem('sp_session');
+                        if (saved) setLoggedUserData(JSON.parse(saved));
+
+                        return () => unsub();
+                    } catch (error) {
+                        console.error("Firebase Init Error:", error);
+                        setIsLoading(false);
                     }
-                });
-                return () => unsub();
+                };
+
+                startFirebase();
             }, []);
 
-            // 2. Lắng nghe Dữ liệu chung (Chỉ fetch khi đã đăng nhập - Rule 3)
-            useEffect(() => {
-                if (!authUser) return;
+            // HÀM LƯU DỮ LIỆU LÊN CLOUD
+            const saveToCloud = async (updates) => {
+                try {
+                    const db = firebase.firestore();
+                    await db.collection('artifacts').doc(appId).collection('public').doc('data').update(updates);
+                } catch (e) {
+                    console.error("Cloud Save Error:", e);
+                    showNotify("Không thể lưu dữ liệu!");
+                }
+            };
 
-                const unsubProducts = onSnapshot(getPublicPath('products'), snap => {
-                    setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                });
-                const unsubDeposits = onSnapshot(getPublicPath('deposits'), snap => {
-                    setDeposits(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.createdAt - a.createdAt));
-                });
-                const unsubOrders = onSnapshot(getPublicPath('orders'), snap => {
-                    setOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.createdAt - a.createdAt));
+            const handleAuth = async (e) => {
+                e.preventDefault();
+                if (authMode === 'register') {
+                    if (authForm.password !== authForm.confirmPassword) return showNotify("Mật khẩu không khớp!");
+                    if (registeredUsers.find(u => u.username === authForm.username)) return showNotify("Tài khoản đã tồn tại!");
+                    
+                    const newUser = { username: authForm.username, password: authForm.password, balance: 0, role: 'user' };
+                    const updatedUsers = [...registeredUsers, newUser];
+                    await saveToCloud({ users: updatedUsers });
+                    showNotify("Đăng ký thành công!");
+                    setAuthMode('login');
+                } else {
+                    // Admin login hardcode
+                    if (authForm.username === 'Yewan' && authForm.password === 'Botditcogiao113!') {
+                        const admin = { username: 'Yewan', role: 'admin', balance: 999999999 };
+                        setLoggedUserData(admin);
+                        localStorage.setItem('sp_session', JSON.stringify(admin));
+                        setActiveTab('admin');
+                        return;
+                    }
+                    // User login
+                    const found = registeredUsers.find(u => u.username === authForm.username && u.password === authForm.password);
+                    if (found) {
+                        setLoggedUserData(found);
+                        localStorage.setItem('sp_session', JSON.stringify(found));
+                        setActiveTab('home');
+                        showNotify("Chào mừng trở lại!");
+                    } else showNotify("Sai tài khoản hoặc mật khẩu!");
+                }
+            };
+
+            const handleAddToCart = (item) => {
+                if (item.stock <= 0) return showNotify("Hết hàng!");
+                const existing = cart.find(i => i.id === item.id);
+                if (existing && existing.qty >= item.stock) return showNotify("Đã đạt giới hạn kho!");
+                if (existing) setCart(cart.map(i => i.id === item.id ? { ...i, qty: i.qty + 1 } : i));
+                else setCart([...cart, { ...item, qty: 1 }]);
+                showNotify("Đã thêm vào giỏ!");
+            };
+
+            const checkout = async () => {
+                if (!robloxUsername) return showNotify("Nhập Roblox ID!");
+                const total = cart.reduce((s, i) => s + (i.price * i.qty), 0);
+                if (!loggedUserData || loggedUserData.balance < total) return showNotify("Số dư không đủ!");
+
+                const order = {
+                    id: Date.now(),
+                    user: loggedUserData.username,
+                    robloxUser: robloxUsername,
+                    items: [...cart],
+                    total,
+                    status: 'pending',
+                    date: new Date().toLocaleString(),
+                    category: 'order'
+                };
+
+                const updatedUsers = registeredUsers.map(u => u.username === loggedUserData.username ? { ...u, balance: u.balance - total } : u);
+                const updatedItems = items.map(it => {
+                    const c = cart.find(x => x.id === it.id);
+                    return c ? { ...it, stock: it.stock - c.qty } : it;
                 });
 
-                // Lắng nghe cài đặt global
-                const unsubSettings = onSnapshot(getDocPath('settings', 'global'), snap => {
-                    if (snap.exists()) setSettings(snap.data());
+                await saveToCloud({
+                    users: updatedUsers,
+                    items: updatedItems,
+                    requests: [order, ...pendingRequests],
+                    history: [order, ...transactionHistory]
                 });
 
-                // Lắng nghe danh sách user cho Admin
-                const unsubUsers = onSnapshot(getPublicPath('users'), snap => {
-                    setAllUsers(snap.docs.map(d => d.data()));
+                // Cập nhật session hiện tại
+                if (loggedUserData.role !== 'admin') {
+                    const updatedMe = { ...loggedUserData, balance: loggedUserData.balance - total };
+                    setLoggedUserData(updatedMe);
+                    localStorage.setItem('sp_session', JSON.stringify(updatedMe));
+                }
+
+                setCart([]);
+                setIsCartOpen(false);
+                setShowCheckoutSuccess(true);
+            };
+
+            const handleApprove = async (id) => {
+                const req = pendingRequests.find(r => r.id === id);
+                if (!req) return;
+                let updatedUsers = [...registeredUsers];
+                
+                if (req.category === 'deposit') {
+                    const receivedAmount = req.receivedValue || req.value;
+                    updatedUsers = registeredUsers.map(u => u.username === req.user ? { ...u, balance: u.balance + receivedAmount } : u);
+                    
+                    // Nếu admin đang duyệt cho chính mình
+                    if (loggedUserData && loggedUserData.username === req.user) {
+                        const updatedMe = { ...loggedUserData, balance: loggedUserData.balance + receivedAmount };
+                        setLoggedUserData(updatedMe);
+                        localStorage.setItem('sp_session', JSON.stringify(updatedMe));
+                    }
+                }
+
+                await saveToCloud({
+                    users: updatedUsers,
+                    history: transactionHistory.map(h => h.id === id ? { ...h, status: req.category === 'deposit' ? 'approved' : 'completed' } : h),
+                    requests: pendingRequests.filter(r => r.id !== id)
                 });
+                showNotify("Đã phê duyệt thành công!");
+            };
 
-                return () => { unsubProducts(); unsubDeposits(); unsubOrders(); unsubSettings(); unsubUsers(); };
-            }, [authUser]);
-
-            // Nếu chưa đăng nhập -> Hiển thị màn hình Auth
-            if (!authUser) return <AuthScreen showNotify={showNotify} settings={settings} />;
+            if (isLoading) return (
+                <div className="h-screen flex flex-col items-center justify-center bg-slate-900 text-white uppercase italic tracking-widest font-black">
+                    <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <p className="animate-pulse">Đang kết nối Đám Mây...</p>
+                </div>
+            );
 
             return (
-                <div className="max-w-6xl mx-auto px-4 py-6">
-                    {/* Header / Navbar */}
-                    <header className="bg-white rounded-2xl shadow-sm p-4 mb-6 flex justify-between items-center border border-slate-100">
-                        <div className="flex items-center gap-6">
-                            <h1 className="text-2xl font-black text-blue-600 tracking-tighter cursor-pointer" onClick={() => setView('shop')}>
-                                SAILOR<span className="text-slate-800">SHOP</span>
-                            </h1>
-                            <nav className="hidden md:flex gap-4 font-bold text-sm text-slate-500">
-                                <button onClick={() => setView('shop')} className={`hover:text-blue-600 transition ${view==='shop'?'text-blue-600':''}`}>Cửa hàng</button>
-                                <button onClick={() => setView('deposit')} className={`hover:text-blue-600 transition ${view==='deposit'?'text-blue-600':''}`}>Nạp tiền</button>
-                                <button onClick={() => setView('history')} className={`hover:text-blue-600 transition ${view==='history'?'text-blue-600':''}`}>Lịch sử</button>
-                            </nav>
+                <div className="min-h-screen bg-slate-50 text-slate-900 pb-10 animate-fade-in">
+                    {/* Toast Notification */}
+                    {notification && (
+                        <div className="fixed top-20 right-4 z-[120] bg-slate-900 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border-l-4 border-blue-500 animate-in slide-in-from-right-full">
+                            <i className="fa-solid fa-bolt text-yellow-400"></i>
+                            <p className="text-sm font-bold">{notification}</p>
                         </div>
+                    )}
 
-                        <div className="flex items-center gap-4">
-                            {profile?.role === 'admin' && (
-                                <button onClick={() => setView('admin')} className="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-slate-700">
-                                    <i className="fa-solid fa-shield-halved mr-1"></i> Admin Panel
-                                </button>
-                            )}
-                            <button onClick={() => setView('cart')} className="relative p-2 text-slate-600 hover:text-blue-600 transition">
-                                <i className="fa-solid fa-cart-shopping text-xl"></i>
-                                {cart.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold">{cart.length}</span>}
-                            </button>
-                            <div className="text-right border-l pl-4 border-slate-200">
-                                <p className="text-xs font-bold text-slate-400">{profile?.email.split('@')[0]}</p>
-                                <p className="text-sm font-black text-green-600">{profile?.balance.toLocaleString()} VNĐ</p>
+                    {/* Popup Thành Công */}
+                    {showCheckoutSuccess && (
+                        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+                            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowCheckoutSuccess(false)}></div>
+                            <div className="relative bg-white rounded-[2.5rem] p-8 max-w-md w-full shadow-2xl border animate-in zoom-in-95">
+                                <div className="w-20 h-20 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner"><i className="fa-solid fa-circle-check text-[40px]"></i></div>
+                                <h3 className="text-2xl font-black text-center uppercase italic text-slate-800 mb-2">Thành Công!</h3>
+                                <div className="bg-blue-50 p-5 rounded-3xl mb-8 text-sm font-bold text-slate-700 leading-relaxed text-center italic whitespace-pre-wrap">{shopSettings.checkoutMsg}</div>
+                                <a href={FANPAGE_URL} target="_blank" className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl uppercase text-xs flex items-center justify-center gap-2 mb-3 shadow-lg shadow-blue-100"><i className="fa-brands fa-facebook-messenger text-lg"></i> Chat Với Admin Ngay</a>
+                                <button onClick={() => setShowCheckoutSuccess(false)} className="w-full py-4 bg-slate-100 text-slate-500 font-black rounded-2xl uppercase text-xs">Đóng</button>
                             </div>
-                            <button onClick={() => signOut(auth)} className="text-slate-400 hover:text-red-500 ml-2">
-                                <i className="fa-solid fa-right-from-bracket"></i>
-                            </button>
+                        </div>
+                    )}
+
+                    <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b h-16 flex items-center px-4">
+                        <div className="max-w-7xl mx-auto w-full flex justify-between items-center">
+                            <div className="flex items-center gap-2 cursor-pointer" onClick={() => setActiveTab('home')}>
+                                <div className="bg-blue-600 text-white p-2 rounded-xl shadow-lg shadow-blue-100"><i className="fa-solid fa-anchor"></i></div>
+                                <span className="text-lg font-black uppercase italic tracking-tighter">Sailor<span className="text-blue-600">Shop</span></span>
+                            </div>
+                            <nav className="hidden md:flex gap-6 text-[10px] font-black uppercase text-slate-400">
+                                <button onClick={() => setActiveTab('home')} className={activeTab === 'home' ? 'text-blue-600' : ''}>Trang Chủ</button>
+                                <button onClick={() => setActiveTab('shop')} className={activeTab === 'shop' ? 'text-blue-600' : ''}>Sản Phẩm</button>
+                                <button onClick={() => setActiveTab('deposit')} className={activeTab === 'deposit' ? 'text-blue-600' : ''}>Nạp Tiền</button>
+                                {loggedUserData && <button onClick={() => setActiveTab('history')}>Lịch Sử</button>}
+                                {loggedUserData?.role === 'admin' && <button onClick={() => setActiveTab('admin')} className="text-orange-500 flex items-center gap-1"><i className="fa-solid fa-gear"></i> QUẢN TRỊ</button>}
+                            </nav>
+                            <div className="flex items-center gap-3">
+                                {loggedUserData ? (
+                                    <div className="flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-2xl border">
+                                        <div className="text-right hidden sm:block">
+                                            <p className="text-[8px] font-black text-slate-400 uppercase leading-none">VÍ {loggedUserData.username}</p>
+                                            <p className="text-xs font-black text-emerald-600">{loggedUserData.balance.toLocaleString()}đ</p>
+                                        </div>
+                                        <button onClick={() => { setLoggedUserData(null); localStorage.removeItem('sp_session'); setActiveTab('home'); }} className="text-slate-400 hover:text-red-600 p-1"><i className="fa-solid fa-right-from-bracket"></i></button>
+                                    </div>
+                                ) : (
+                                    <button onClick={() => setActiveTab('auth')} className="bg-slate-900 text-white px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl">Đăng Nhập</button>
+                                )}
+                                <button onClick={() => setIsCartOpen(true)} className="relative p-2.5 bg-slate-100 rounded-2xl border">
+                                    <i className="fa-solid fa-cart-shopping"></i>
+                                    {cart.length > 0 && <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[9px] w-5 h-5 flex items-center justify-center rounded-full border-2 border-white font-bold">{cart.length}</span>}
+                                </button>
+                            </div>
                         </div>
                     </header>
 
-                    {/* Notification Toast */}
-                    {notif && (
-                        <div className="fixed top-20 right-10 bg-slate-900 text-white px-6 py-3 rounded-xl shadow-2xl z-50 fade-in border border-slate-700">
-                            {notif}
-                        </div>
-                    )}
-
-                    {/* Main Content Routing */}
-                    <div className="fade-in">
-                        {view === 'shop' && <ShopView products={products} cart={cart} setCart={setCart} showNotify={showNotify} settings={settings} />}
-                        {view === 'cart' && <CartView cart={cart} setCart={setCart} profile={profile} showNotify={showNotify} setView={setView} />}
-                        {view === 'deposit' && <DepositView profile={profile} showNotify={showNotify} setView={setView} settings={settings} />}
-                        {view === 'history' && <HistoryView profile={profile} orders={orders} deposits={deposits} />}
-                        {view === 'admin' && profile?.role === 'admin' && <AdminView products={products} orders={orders} deposits={deposits} allUsers={allUsers} settings={settings} showNotify={showNotify} />}
-                    </div>
-                </div>
-            );
-        };
-
-        // ==========================================
-        // CÁC MÀN HÌNH (COMPONENTS)
-        // ==========================================
-
-        // 1. MÀN HÌNH ĐĂNG NHẬP / ĐĂNG KÝ
-        const AuthScreen = ({ showNotify, settings }) => {
-            const [isLogin, setIsLogin] = useState(true);
-            const [username, setUsername] = useState('');
-            const [password, setPassword] = useState('');
-
-            const handleSubmit = async (e) => {
-                e.preventDefault();
-                const email = `${username.trim().toLowerCase()}@sailorshop.com`;
-                try {
-                    if (isLogin) {
-                        try {
-                            await signInWithEmailAndPassword(auth, email, password);
-                            showNotify("Đăng nhập thành công!");
-                        } catch (err) {
-                            if (username === 'Yewan' && password === 'Botditcogiao113!' && (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found')) {
-                                // Tự động tạo admin Yewan nếu chưa tồn tại
-                                const cred = await createUserWithEmailAndPassword(auth, email, password);
-                                await setDoc(getDocPath('users', cred.user.uid), { username: 'Yewan', email, password, balance: 0, role: 'admin', uid: cred.user.uid });
-                                showNotify("Tự động tạo và đăng nhập Admin Yewan thành công!");
-                            } else {
-                                throw err;
-                            }
-                        }
-                    } else {
-                        const cred = await createUserWithEmailAndPassword(auth, email, password);
-                        // Lưu lại mật khẩu để Admin có thể xem (Lưu ý bảo mật)
-                        await setDoc(getDocPath('users', cred.user.uid), {
-                            username: username, email: email, password: password, balance: 0, role: 'user', uid: cred.user.uid
-                        });
-                        showNotify("Đăng ký thành công!");
-                    }
-                } catch (err) {
-                    showNotify("Lỗi: " + err.message);
-                }
-            };
-
-            return (
-                <div className="min-h-screen flex items-center justify-center bg-slate-100 px-4">
-                    <form onSubmit={handleSubmit} className="bg-white p-8 rounded-3xl shadow-xl max-w-sm w-full border border-slate-100">
-                        <h2 className="text-3xl font-black text-center mb-2 text-slate-800 tracking-tight">SAILOR SHOP</h2>
-                        <p className="text-center text-sm text-slate-500 mb-8 font-medium">{settings?.bannerText || 'Hệ thống mua bán vật phẩm tự động'}</p>
-                        
-                        <input 
-                            type="text" placeholder="Tên tài khoản (Username)" required
-                            className="w-full mb-4 p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 ring-blue-500 transition" 
-                            onChange={e => setUsername(e.target.value)} 
-                        />
-                        <input 
-                            type="password" placeholder="Mật khẩu" required
-                            className="w-full mb-6 p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 ring-blue-500 transition" 
-                            onChange={e => setPassword(e.target.value)} 
-                        />
-                        <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg transition active:scale-95">
-                            {isLogin ? 'ĐĂNG NHẬP' : 'TẠO TÀI KHOẢN'}
-                        </button>
-                        <p className="mt-6 text-center text-sm font-bold text-slate-500 cursor-pointer hover:text-blue-600 transition" onClick={() => setIsLogin(!isLogin)}>
-                            {isLogin ? 'Chưa có tài khoản? Đăng ký ngay' : 'Đã có tài khoản? Đăng nhập'}
-                        </p>
-                    </form>
-                </div>
-            );
-        };
-
-        // 2. MÀN HÌNH CỬA HÀNG
-        const ShopView = ({ products, cart, setCart, showNotify, settings }) => {
-            const addToCart = (product) => {
-                setCart([...cart, product]);
-                showNotify(`Đã thêm ${product.name} vào giỏ!`);
-            };
-
-            return (
-                <div>
-                    {settings?.bannerText && (
-                        <div className="bg-blue-600 text-white p-4 rounded-2xl mb-8 shadow-lg text-center font-black text-lg tracking-wide uppercase animate-pulse">
-                            {settings.bannerText}
-                        </div>
-                    )}
-                    <h2 className="text-2xl font-black mb-6 uppercase text-slate-800"><i className="fa-solid fa-fire text-red-500 mr-2"></i>Sản phẩm nổi bật</h2>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                        {products.map(p => (
-                            <div key={p.id} className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl border border-slate-100 transition-all flex flex-col group">
-                                <div className="h-40 overflow-hidden relative">
-                                    <img src={p.image} className="w-full h-full object-cover group-hover:scale-110 transition duration-500" onError={e=>e.target.src='https://placehold.co/400x300'} />
-                                    <span className="absolute top-2 left-2 bg-white/90 backdrop-blur text-[10px] font-black px-2 py-1 rounded-full text-blue-600 uppercase shadow">{p.category}</span>
+                    <main className="max-w-7xl mx-auto px-4 py-8">
+                        {activeTab === 'auth' && (
+                            <div className="max-w-md mx-auto bg-white p-10 rounded-[2.5rem] shadow-2xl mt-10 border">
+                                <div className="flex gap-4 mb-8">
+                                    <button onClick={() => setAuthMode('login')} className={`flex-1 py-3 font-black text-[10px] uppercase rounded-2xl transition-all ${authMode === 'login' ? 'bg-slate-900 text-white shadow-xl' : 'bg-slate-50 text-slate-400'}`}>Đăng Nhập</button>
+                                    <button onClick={() => setAuthMode('register')} className={`flex-1 py-3 font-black text-[10px] uppercase rounded-2xl transition-all ${authMode === 'register' ? 'bg-slate-900 text-white shadow-xl' : 'bg-slate-50 text-slate-400'}`}>Đăng Ký</button>
                                 </div>
-                                <div className="p-4 flex flex-col flex-grow">
-                                    <h3 className="font-bold text-slate-800 mb-1 line-clamp-2 h-10">{p.name}</h3>
-                                    <div className="mt-auto">
-                                        <p className="text-red-500 font-black text-lg mb-3">{p.price.toLocaleString()}đ</p>
-                                        <button onClick={() => addToCart(p)} className="w-full bg-slate-100 hover:bg-slate-900 text-slate-800 hover:text-white font-bold py-2 rounded-xl transition text-sm">
-                                            Thêm vào giỏ
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                        {products.length === 0 && <p className="col-span-full text-center text-slate-400 py-10">Chưa có sản phẩm nào. Admin hãy thêm sản phẩm!</p>}
-                    </div>
-                </div>
-            );
-        };
-
-        // 3. MÀN HÌNH GIỎ HÀNG & THANH TOÁN
-        const CartView = ({ cart, setCart, profile, showNotify, setView }) => {
-            const [robloxName, setRobloxName] = useState('');
-            const total = cart.reduce((sum, item) => sum + Number(item.price), 0);
-
-            const handleCheckout = async () => {
-                if (cart.length === 0) return showNotify("Giỏ hàng trống!");
-                if (!robloxName) return showNotify("Vui lòng nhập tên Roblox!");
-                if (profile.balance < total) return showNotify("Số dư không đủ! Vui lòng nạp thêm tiền.");
-
-                try {
-                    // 1. Trừ tiền
-                    await updateDoc(getDocPath('users', profile.uid), { balance: profile.balance - total });
-                    
-                    // 2. Tạo đơn hàng
-                    await addDoc(getPublicPath('orders'), {
-                        uid: profile.uid,
-                        email: profile.email,
-                        robloxName: robloxName,
-                        items: cart,
-                        total: total,
-                        status: 'pending', // pending, completed, rejected
-                        createdAt: Date.now()
-                    });
-
-                    setCart([]);
-                    showNotify("Đặt hàng thành công! Vui lòng chờ Admin duyệt.");
-                    setView('history');
-                } catch (err) {
-                    showNotify("Lỗi khi thanh toán: " + err.message);
-                }
-            };
-
-            return (
-                <div className="max-w-3xl mx-auto bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-                    <h2 className="text-2xl font-black mb-6 border-b pb-4"><i className="fa-solid fa-cart-shopping mr-2"></i> Giỏ Hàng Của Bạn</h2>
-                    
-                    {cart.length === 0 ? (
-                        <div className="text-center py-10">
-                            <i className="fa-solid fa-box-open text-4xl text-slate-200 mb-4"></i>
-                            <p className="text-slate-400 font-bold">Giỏ hàng đang trống</p>
-                            <button onClick={()=>setView('shop')} className="mt-4 bg-blue-50 text-blue-600 px-6 py-2 rounded-xl font-bold">Tiếp tục mua sắm</button>
-                        </div>
-                    ) : (
-                        <div>
-                            <div className="space-y-4 mb-8">
-                                {cart.map((item, idx) => (
-                                    <div key={idx} className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl">
-                                        <div className="flex items-center gap-4">
-                                            <img src={item.image} className="w-12 h-12 rounded-lg object-cover" />
-                                            <p className="font-bold text-slate-700">{item.name}</p>
-                                        </div>
-                                        <p className="font-black text-red-500">{item.price.toLocaleString()}đ</p>
-                                    </div>
-                                ))}
-                            </div>
-                            
-                            <div className="bg-blue-50 p-6 rounded-2xl mb-6">
-                                <label className="block text-sm font-bold text-blue-800 mb-2">Nhập tên Ingame (Roblox Username) để nhận hàng:</label>
-                                <input 
-                                    value={robloxName} onChange={e=>setRobloxName(e.target.value)}
-                                    placeholder="VD: rip_indra..." 
-                                    className="w-full p-4 rounded-xl border border-blue-200 outline-none focus:ring-2 ring-blue-400"
-                                />
-                            </div>
-
-                            <div className="flex justify-between items-center border-t pt-6">
-                                <div>
-                                    <p className="text-slate-500 text-sm font-bold">Tổng thanh toán</p>
-                                    <p className="text-3xl font-black text-red-600">{total.toLocaleString()}đ</p>
-                                </div>
-                                <button onClick={handleCheckout} className="bg-slate-900 hover:bg-slate-800 text-white px-8 py-4 rounded-2xl font-black text-lg shadow-lg active:scale-95 transition">
-                                    THANH TOÁN NGAY
-                                </button>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            );
-        };
-
-        // 4. MÀN HÌNH NẠP TIỀN (BANK & THẺ CÀO)
-        const DepositView = ({ profile, showNotify, setView, settings }) => {
-            const [method, setMethod] = useState('bank'); // bank, card
-            const [amount, setAmount] = useState('');
-            // Cho Bank
-            const [txId, setTxId] = useState('');
-            // Cho Card
-            const [cardType, setCardType] = useState('Viettel');
-            const [serial, setSerial] = useState('');
-            const [code, setCode] = useState('');
-
-            const handleDeposit = async (e) => {
-                e.preventDefault();
-                const numAmount = Number(amount);
-                if (!numAmount || numAmount <= 0) return showNotify("Vui lòng nhập số tiền hợp lệ!");
-
-                let depositData = {
-                    uid: profile.uid,
-                    email: profile.email,
-                    method: method,
-                    status: 'pending',
-                    createdAt: Date.now()
-                };
-
-                if (method === 'bank') {
-                    if (!txId) return showNotify("Vui lòng nhập mã giao dịch!");
-                    depositData.declaredAmount = numAmount;
-                    depositData.actualAmount = numAmount; // Bank nhận 100%
-                    depositData.txId = txId;
-                } else {
-                    if (!serial || !code) return showNotify("Vui lòng nhập đủ Serial và Mã thẻ!");
-                    depositData.cardType = cardType;
-                    depositData.serial = serial;
-                    depositData.code = code;
-                    depositData.declaredAmount = numAmount;
-                    depositData.actualAmount = numAmount * 0.85; // Chiết khấu 15%
-                }
-
-                try {
-                    await addDoc(getPublicPath('deposits'), depositData);
-                    showNotify("Gửi yêu cầu nạp thành công! Chờ admin duyệt.");
-                    setView('history');
-                } catch (err) {
-                    showNotify("Lỗi: " + err.message);
-                }
-            };
-
-            return (
-                <div className="max-w-2xl mx-auto">
-                    <div className="flex bg-white rounded-2xl p-2 shadow-sm mb-6 border border-slate-100">
-                        <button onClick={() => setMethod('bank')} className={`flex-1 py-3 rounded-xl font-bold transition ${method==='bank'?'bg-blue-600 text-white shadow':'text-slate-500 hover:bg-slate-50'}`}>Nạp Ngân Hàng</button>
-                        <button onClick={() => setMethod('card')} className={`flex-1 py-3 rounded-xl font-bold transition ${method==='card'?'bg-blue-600 text-white shadow':'text-slate-500 hover:bg-slate-50'}`}>Nạp Thẻ Cào (CK 15%)</button>
-                    </div>
-
-                    <form onSubmit={handleDeposit} className="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
-                        {method === 'bank' ? (
-                            <div className="space-y-4 animate-fade-in">
-                                <div className="bg-blue-50 p-6 rounded-2xl text-center border border-blue-100 mb-6 flex flex-col items-center">
-                                    <p className="text-sm font-bold text-blue-800 mb-2">Quét mã QR để chuyển khoản</p>
-                                    <img src={settings?.bankQrUrl || 'https://placehold.co/400x400?text=Chua+co+ma+QR'} alt="Mã QR Ngân hàng" className="w-48 h-48 object-cover rounded-xl shadow-md mb-4" />
-                                    <p className="font-bold text-slate-600">Nội dung chuyển khoản:</p>
-                                    <p className="text-lg font-black text-blue-600 mt-1">NAP {profile?.username || profile.email.split('@')[0]}</p>
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase">Số tiền đã chuyển (VNĐ)</label>
-                                    <input type="number" value={amount} onChange={e=>setAmount(e.target.value)} className="w-full p-4 mt-1 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="VD: 50000" />
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase">Mã giao dịch (TxID)</label>
-                                    <input type="text" value={txId} onChange={e=>setTxId(e.target.value)} className="w-full p-4 mt-1 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="VD: FT21..." />
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="space-y-4 animate-fade-in">
-                                <div className="bg-amber-50 p-4 rounded-xl mb-6 border border-amber-200 text-amber-800 text-sm font-bold text-center">
-                                    Lưu ý: Nạp thẻ cào chịu phí chiết khấu 15%. (Thẻ 100k nhận 85k).
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase">Loại thẻ</label>
-                                        <select value={cardType} onChange={e=>setCardType(e.target.value)} className="w-full p-4 mt-1 bg-slate-50 border border-slate-200 rounded-xl outline-none">
-                                            <option>Viettel</option><option>Vinaphone</option><option>Mobifone</option><option>Zing</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-500 uppercase">Mệnh giá thẻ (VNĐ)</label>
-                                        <select value={amount} onChange={e=>setAmount(e.target.value)} className="w-full p-4 mt-1 bg-slate-50 border border-slate-200 rounded-xl outline-none">
-                                            <option value="">Chọn mệnh giá...</option>
-                                            <option value="10000">10,000đ</option>
-                                            <option value="20000">20,000đ</option>
-                                            <option value="50000">50,000đ</option>
-                                            <option value="100000">100,000đ</option>
-                                            <option value="200000">200,000đ</option>
-                                            <option value="500000">500,000đ</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase">Mã thẻ (PIN)</label>
-                                    <input type="text" value={code} onChange={e=>setCode(e.target.value)} className="w-full p-4 mt-1 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-slate-500 uppercase">Số Serial</label>
-                                    <input type="text" value={serial} onChange={e=>setSerial(e.target.value)} className="w-full p-4 mt-1 bg-slate-50 border border-slate-200 rounded-xl outline-none" />
-                                </div>
-                                {amount && (
-                                    <div className="text-center p-3 bg-green-50 text-green-700 rounded-xl font-bold border border-green-200">
-                                        Thực nhận vào web: {(Number(amount) * 0.85).toLocaleString()} VNĐ
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                        <button className="w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-2xl shadow-lg transition active:scale-95">
-                            GỬI YÊU CẦU NẠP
-                        </button>
-                    </form>
-                </div>
-            );
-        };
-
-        // 5. MÀN HÌNH LỊCH SỬ (Khách hàng)
-        const HistoryView = ({ profile, orders, deposits }) => {
-            // Lọc dữ liệu trên máy khách theo Rule 2
-            const myOrders = orders.filter(o => o.uid === profile.uid);
-            const myDeposits = deposits.filter(d => d.uid === profile.uid);
-
-            const StatusBadge = ({ status }) => {
-                const colors = {
-                    pending: "bg-yellow-100 text-yellow-700",
-                    approved: "bg-green-100 text-green-700",
-                    completed: "bg-green-100 text-green-700",
-                    rejected: "bg-red-100 text-red-700"
-                };
-                const labels = { pending: "Đang chờ duyệt", approved: "Thành công", completed: "Đã giao hàng", rejected: "Từ chối" };
-                return <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${colors[status]}`}>{labels[status]}</span>;
-            };
-
-            return (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {/* Lịch sử Nạp */}
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                        <h3 className="text-lg font-black mb-4"><i className="fa-solid fa-money-bill-transfer text-green-500 mr-2"></i> Lịch sử Nạp Tiền</h3>
-                        <div className="space-y-3">
-                            {myDeposits.length === 0 && <p className="text-sm text-slate-400">Chưa có giao dịch nạp.</p>}
-                            {myDeposits.map(d => (
-                                <div key={d.id} className="p-4 bg-slate-50 rounded-2xl flex justify-between items-center">
-                                    <div>
-                                        <p className="font-bold text-slate-700">{d.method === 'bank' ? 'Chuyển khoản' : `Thẻ ${d.cardType}`}</p>
-                                        <p className="text-xs text-slate-400">{new Date(d.createdAt).toLocaleString()}</p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="font-black text-blue-600">+{d.actualAmount.toLocaleString()}đ</p>
-                                        <StatusBadge status={d.status} />
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Lịch sử Mua */}
-                    <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-                        <h3 className="text-lg font-black mb-4"><i className="fa-solid fa-bag-shopping text-blue-500 mr-2"></i> Lịch sử Mua Hàng</h3>
-                        <div className="space-y-3">
-                            {myOrders.length === 0 && <p className="text-sm text-slate-400">Chưa mua đơn nào.</p>}
-                            {myOrders.map(o => (
-                                <div key={o.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                                    <div className="flex justify-between items-start mb-2">
-                                        <div>
-                                            <p className="font-bold text-sm text-slate-700">Đơn #{o.id.slice(0,6)}</p>
-                                            <p className="text-[10px] text-slate-400">Tên NV: <span className="text-blue-600 font-bold">{o.robloxName}</span></p>
-                                        </div>
-                                        <StatusBadge status={o.status} />
-                                    </div>
-                                    <div className="text-xs text-slate-500 mt-2">
-                                        {o.items.map(i => i.name).join(', ')}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            );
-        };
-
-        // 6. KHU VỰC QUẢN LÝ (ADMIN PANEL)
-        const AdminView = ({ products, orders, deposits, allUsers, settings, showNotify }) => {
-            const [adminTab, setAdminTab] = useState('deposits');
-            const [form, setForm] = useState({ name: '', price: '', image: '', category: 'Fruit' });
-            const [settingsForm, setSettingsForm] = useState({ bannerText: settings?.bannerText || '', bankQrUrl: settings?.bankQrUrl || '' });
-
-            // Logic Cập Nhật Cài Đặt
-            const handleSaveSettings = async () => {
-                await setDoc(getDocPath('settings', 'global'), settingsForm);
-                showNotify("Đã lưu cài đặt chung!");
-            };
-
-            // Logic Duyệt Đơn Nạp
-            const handleApproveDeposit = async (dep) => {
-                if (!confirm(`Duyệt nạp ${dep.actualAmount.toLocaleString()}đ cho ${dep.email}?`)) return;
-                try {
-                    // Cập nhật trạng thái
-                    await updateDoc(getDocPath('deposits', dep.id), { status: 'approved' });
-                    // Cộng tiền cho user
-                    const userRef = getDocPath('users', dep.uid);
-                    const userSnap = await getDoc(userRef);
-                    if(userSnap.exists()){
-                        const currentBalance = userSnap.data().balance || 0;
-                        await updateDoc(userRef, { balance: currentBalance + dep.actualAmount });
-                        showNotify("Đã duyệt đơn nạp thành công!");
-                    }
-                } catch(e) { showNotify("Lỗi: " + e.message); }
-            };
-
-            const handleRejectDeposit = async (depId) => {
-                await updateDoc(getDocPath('deposits', depId), { status: 'rejected' });
-                showNotify("Đã từ chối đơn nạp.");
-            };
-
-            // Logic Duyệt Đơn Hàng
-            const handleApproveOrder = async (orderId) => {
-                await updateDoc(getDocPath('orders', orderId), { status: 'completed' });
-                showNotify("Đã xác nhận giao hàng!");
-            };
-
-            const handleRejectOrder = async (order) => {
-                if (!confirm(`Hủy đơn và hoàn tiền ${order.total.toLocaleString()}đ cho ${order.email}?`)) return;
-                try {
-                    await updateDoc(getDocPath('orders', order.id), { status: 'rejected' });
-                    // Hoàn tiền
-                    const userRef = getDocPath('users', order.uid);
-                    const userSnap = await getDoc(userRef);
-                    if(userSnap.exists()){
-                        const currentBalance = userSnap.data().balance || 0;
-                        await updateDoc(userRef, { balance: currentBalance + order.total });
-                        showNotify("Đã hủy đơn và hoàn tiền!");
-                    }
-                } catch(e) { showNotify("Lỗi: " + e.message); }
-            };
-
-            // Logic Thêm/Xóa Sản phẩm
-            const handleAddProduct = async (e) => {
-                e.preventDefault();
-                await addDoc(getPublicPath('products'), { ...form, price: Number(form.price), createdAt: Date.now() });
-                setForm({ name: '', price: '', image: '', category: 'Fruit' });
-                showNotify("Đã thêm sản phẩm!");
-            };
-
-            const pendingDeposits = deposits.filter(d => d.status === 'pending');
-            const pendingOrders = orders.filter(o => o.status === 'pending');
-
-            return (
-                <div className="bg-slate-900 rounded-3xl p-6 text-white shadow-2xl">
-                    <div className="flex justify-between items-center mb-6 border-b border-slate-700 pb-4 overflow-x-auto">
-                        <h2 className="text-2xl font-black text-blue-400 whitespace-nowrap"><i className="fa-solid fa-user-shield mr-2"></i> KHU VỰC ADMIN</h2>
-                        <div className="flex gap-2 bg-slate-800 p-1 rounded-xl whitespace-nowrap ml-4">
-                            <button onClick={()=>setAdminTab('deposits')} className={`px-4 py-2 rounded-lg text-sm font-bold transition ${adminTab==='deposits'?'bg-blue-600':'hover:bg-slate-700'}`}>Duyệt Nạp ({pendingDeposits.length})</button>
-                            <button onClick={()=>setAdminTab('orders')} className={`px-4 py-2 rounded-lg text-sm font-bold transition ${adminTab==='orders'?'bg-blue-600':'hover:bg-slate-700'}`}>Duyệt Đơn ({pendingOrders.length})</button>
-                            <button onClick={()=>setAdminTab('products')} className={`px-4 py-2 rounded-lg text-sm font-bold transition ${adminTab==='products'?'bg-blue-600':'hover:bg-slate-700'}`}>Sản Phẩm</button>
-                            <button onClick={()=>setAdminTab('users')} className={`px-4 py-2 rounded-lg text-sm font-bold transition ${adminTab==='users'?'bg-blue-600':'hover:bg-slate-700'}`}>Tài Khoản</button>
-                            <button onClick={()=>setAdminTab('settings')} className={`px-4 py-2 rounded-lg text-sm font-bold transition ${adminTab==='settings'?'bg-blue-600':'hover:bg-slate-700'}`}>Cài Đặt</button>
-                        </div>
-                    </div>
-
-                    <div className="min-h-[400px]">
-                        {/* TAB: DUYỆT NẠP TIỀN */}
-                        {adminTab === 'deposits' && (
-                            <div className="space-y-4">
-                                {pendingDeposits.length === 0 && <p className="text-slate-500 italic">Không có yêu cầu nạp mới.</p>}
-                                {pendingDeposits.map(d => (
-                                    <div key={d.id} className="bg-slate-800 p-4 rounded-xl flex justify-between items-center border border-slate-700">
-                                        <div>
-                                            <p className="font-bold text-blue-300">{d.email}</p>
-                                            <div className="text-sm mt-1">
-                                                {d.method === 'bank' ? (
-                                                    <p>Ngân hàng - Mã GD: <span className="text-yellow-400">{d.txId}</span></p>
-                                                ) : (
-                                                    <p>Thẻ {d.cardType} - Mã: <span className="text-yellow-400">{d.code}</span> / Seri: <span className="text-yellow-400">{d.serial}</span></p>
-                                                )}
-                                            </div>
-                                            <p className="text-xs text-slate-400 mt-1">{new Date(d.createdAt).toLocaleString()}</p>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-xl font-black text-green-400">+{d.actualAmount.toLocaleString()}đ</p>
-                                            <div className="flex gap-2 mt-2">
-                                                <button onClick={()=>handleRejectDeposit(d.id)} className="bg-red-500/20 text-red-400 px-3 py-1 rounded hover:bg-red-500 hover:text-white transition text-xs font-bold">Từ chối</button>
-                                                <button onClick={()=>handleApproveDeposit(d)} className="bg-green-500 text-white px-4 py-1 rounded shadow hover:bg-green-600 transition text-xs font-bold">Duyệt & Cộng tiền</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {/* TAB: DUYỆT ĐƠN HÀNG */}
-                        {adminTab === 'orders' && (
-                            <div className="space-y-4">
-                                {pendingOrders.length === 0 && <p className="text-slate-500 italic">Không có đơn hàng mới.</p>}
-                                {pendingOrders.map(o => (
-                                    <div key={o.id} className="bg-slate-800 p-4 rounded-xl flex justify-between items-center border border-slate-700">
-                                        <div>
-                                            <p className="font-bold text-blue-300">{o.email} <span className="text-slate-400 text-xs">(Ingame: <span className="text-white">{o.robloxName}</span>)</span></p>
-                                            <div className="text-sm text-slate-300 mt-1">Mua: {o.items.map(i => i.name).join(', ')}</div>
-                                            <p className="text-xs text-slate-400 mt-1">{new Date(o.createdAt).toLocaleString()}</p>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="font-black text-red-400">Giá trị: {o.total.toLocaleString()}đ</p>
-                                            <div className="flex gap-2 mt-2">
-                                                <button onClick={()=>handleRejectOrder(o)} className="bg-red-500/20 text-red-400 px-3 py-1 rounded hover:bg-red-500 hover:text-white transition text-xs font-bold">Hủy & Hoàn tiền</button>
-                                                <button onClick={()=>handleApproveOrder(o.id)} className="bg-blue-500 text-white px-4 py-1 rounded shadow hover:bg-blue-600 transition text-xs font-bold">Đã Trade (Hoàn tất)</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {/* TAB: SẢN PHẨM */}
-                        {adminTab === 'products' && (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <form onSubmit={handleAddProduct} className="bg-slate-800 p-6 rounded-xl border border-slate-700">
-                                    <h3 className="font-bold mb-4">Thêm sản phẩm mới</h3>
-                                    <input placeholder="Tên vật phẩm" required value={form.name} onChange={e=>setForm({...form,name:e.target.value})} className="w-full mb-3 p-3 bg-slate-900 border border-slate-600 rounded outline-none text-white" />
-                                    <input placeholder="Giá tiền (VNĐ)" required type="number" value={form.price} onChange={e=>setForm({...form,price:e.target.value})} className="w-full mb-3 p-3 bg-slate-900 border border-slate-600 rounded outline-none text-white" />
-                                    <input placeholder="Link ảnh (URL)" required value={form.image} onChange={e=>setForm({...form,image:e.target.value})} className="w-full mb-3 p-3 bg-slate-900 border border-slate-600 rounded outline-none text-white" />
-                                    <button className="w-full bg-blue-600 py-3 rounded font-bold hover:bg-blue-700 transition">ĐĂNG SẢN PHẨM</button>
+                                <form onSubmit={handleAuth} className="space-y-4">
+                                    <input type="text" placeholder="Tên tài khoản" required value={authForm.username} onChange={e => setAuthForm({...authForm, username: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none" />
+                                    <input type="password" placeholder="Mật khẩu" required value={authForm.password} onChange={e => setAuthForm({...authForm, password: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none" />
+                                    {authMode === 'register' && <input type="password" placeholder="Xác nhận mật khẩu" required value={authForm.confirmPassword} onChange={e => setAuthForm({...authForm, confirmPassword: e.target.value})} className="w-full p-4 bg-slate-50 border rounded-2xl outline-none" />}
+                                    <button className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl uppercase text-xs tracking-widest">Xác Nhận</button>
                                 </form>
-                                <div className="space-y-3 h-80 overflow-y-auto custom-scrollbar pr-2">
-                                    {products.map(p => (
-                                        <div key={p.id} className="flex justify-between items-center bg-slate-800 p-3 rounded-xl">
-                                            <div className="flex gap-3 items-center">
-                                                <img src={p.image} className="w-10 h-10 rounded object-cover" />
-                                                <div>
-                                                    <p className="font-bold text-sm line-clamp-1">{p.name}</p>
-                                                    <p className="text-xs text-red-400">{p.price.toLocaleString()}đ</p>
-                                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'home' && (
+                            <div className="space-y-12">
+                                <div className="bg-gradient-to-br from-blue-700 to-indigo-900 rounded-[3rem] p-12 text-white relative overflow-hidden shadow-2xl">
+                                    <div className="relative z-10 max-w-2xl">
+                                        <h1 className="text-5xl md:text-6xl font-black mb-4 italic uppercase tracking-tighter leading-tight whitespace-pre-line">{shopSettings.bannerTitle}</h1>
+                                        <p className="text-blue-100 text-lg mb-8 opacity-90 font-medium max-w-lg">{shopSettings.bannerSubtitle}</p>
+                                        <button onClick={() => setActiveTab('shop')} className="bg-white text-blue-900 px-8 py-3.5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-lg">Khám Phá Shop</button>
+                                    </div>
+                                    <div className="absolute right-[-50px] bottom-[-50px] opacity-10 rotate-12"><i className="fa-solid fa-anchor text-[350px]"></i></div>
+                                </div>
+
+                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+                                    {items.slice(0, 4).map(item => (
+                                        <div key={item.id} className="bg-white p-5 rounded-[2.5rem] border hover:shadow-xl transition-all group flex flex-col">
+                                            <div className="bg-slate-50 rounded-3xl h-44 flex items-center justify-center mb-4 overflow-hidden relative">
+                                                <img src={item.img} className="h-28 group-hover:scale-110 transition-transform duration-500" />
                                             </div>
-                                            <button onClick={()=>deleteDoc(getDocPath('products', p.id))} className="text-red-400 hover:text-red-500"><i className="fa-solid fa-trash"></i></button>
+                                            <div className="flex justify-between items-start mb-1 flex-grow">
+                                                <div>
+                                                    <p className="text-[10px] font-black text-blue-500 uppercase">{item.category}</p>
+                                                    <h3 className="font-black text-sm text-slate-800 uppercase italic line-clamp-1">{item.name}</h3>
+                                                </div>
+                                                <p className={`text-[10px] font-bold ${item.stock > 0 ? 'text-slate-400' : 'text-red-500'}`}>Kho: {item.stock}</p>
+                                            </div>
+                                            <p className="text-red-600 font-black text-xl mt-1">{item.price.toLocaleString()}đ</p>
+                                            <button onClick={() => handleAddToCart(item)} className={`mt-4 w-full py-3 rounded-2xl font-black text-[10px] uppercase transition-all ${item.stock > 0 ? 'bg-slate-900 text-white hover:bg-blue-600' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                                                {item.stock > 0 ? 'Thêm Vào Giỏ' : 'Hết Hàng'}
+                                            </button>
                                         </div>
                                     ))}
                                 </div>
                             </div>
                         )}
 
-                        {/* TAB: TÀI KHOẢN (MỚI) */}
-                        {adminTab === 'users' && (
-                            <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left text-sm">
-                                        <thead className="bg-slate-900 text-slate-400">
-                                            <tr>
-                                                <th className="p-4 font-bold">Tài khoản</th>
-                                                <th className="p-4 font-bold">Mật khẩu</th>
-                                                <th className="p-4 font-bold">Số dư</th>
-                                                <th className="p-4 font-bold">Quyền</th>
-                                            </tr>
+                        {activeTab === 'shop' && (
+                            <div className="space-y-8 animate-in fade-in duration-500">
+                                <div className="flex flex-wrap gap-2 mb-6">
+                                    {['All', 'Sword', 'Item', 'Melee', 'Gamepass'].map(cat => (
+                                        <button key={cat} onClick={() => setSelectedCategory(cat)} className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase transition-all ${selectedCategory === cat ? 'bg-blue-600 text-white shadow-xl shadow-blue-200 border-transparent' : 'bg-white text-slate-500 border hover:text-blue-600'}`}>{cat}</button>
+                                    ))}
+                                </div>
+                                <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+                                    {(selectedCategory === 'All' ? items : items.filter(i => i.category === selectedCategory)).map(item => (
+                                        <div key={item.id} className="bg-white p-5 rounded-[2.5rem] border hover:shadow-xl transition-all group flex flex-col">
+                                            <div className="bg-slate-50 rounded-3xl h-44 flex items-center justify-center mb-4 overflow-hidden relative">
+                                                <img src={item.img} className="h-28 group-hover:scale-110 transition-transform" />
+                                            </div>
+                                            <div className="flex justify-between items-start mb-1 flex-grow">
+                                                <div>
+                                                    <p className="text-[10px] font-black text-blue-500 uppercase">{item.category}</p>
+                                                    <h3 className="font-black text-sm text-slate-800 uppercase italic">{item.name}</h3>
+                                                </div>
+                                                <p className={`text-[10px] font-bold ${item.stock > 0 ? 'text-slate-400' : 'text-red-500'}`}>Kho: {item.stock}</p>
+                                            </div>
+                                            <p className="text-red-600 font-black text-xl mt-1">{item.price.toLocaleString()}đ</p>
+                                            <button onClick={() => handleAddToCart(item)} className={`mt-4 w-full py-3 rounded-2xl font-black text-[10px] uppercase transition-all ${item.stock > 0 ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-400'}`}>Mua Ngay</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'deposit' && (
+                            <div className="max-w-4xl mx-auto space-y-8">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                                    <div className="bg-white p-10 rounded-[3rem] shadow-2xl border text-center">
+                                        <h2 className="text-2xl font-black uppercase italic border-l-4 border-blue-600 pl-4 text-left mb-6">Chuyển Khoản</h2>
+                                        <img src={shopSettings.qrUrl} className="mx-auto rounded-2xl w-64 shadow-md mb-4 border" />
+                                        <p className="font-black uppercase text-lg text-slate-800">{shopSettings.accountName}</p>
+                                        <p className="text-blue-600 font-black text-2xl tracking-tighter">{shopSettings.accountNumber}</p>
+                                        <p className="text-[10px] font-black text-slate-400 uppercase mt-1">{shopSettings.bankName}</p>
+                                    </div>
+                                    <div className="bg-white p-10 rounded-[3rem] shadow-2xl border">
+                                        <h3 className="font-black uppercase text-sm text-slate-400 tracking-widest mb-6 italic">Gửi Yêu Cầu Duyệt Nạp</h3>
+                                        <form onSubmit={async (e) => {
+                                            e.preventDefault();
+                                            if (!loggedUserData) return showNotify("Hãy đăng nhập!");
+                                            const amount = parseInt(e.target.amount.value);
+                                            const req = { id: Date.now(), user: loggedUserData.username, value: amount, status: 'pending', date: new Date().toLocaleString(), category: 'deposit', method: 'Chuyển khoản' };
+                                            await saveToCloud({ requests: [req, ...pendingRequests], history: [req, ...transactionHistory] });
+                                            showNotify("Đã gửi yêu cầu nạp tiền!");
+                                            e.target.reset();
+                                        }} className="space-y-4">
+                                            <input name="amount" type="number" required placeholder="Số tiền đã chuyển" className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" />
+                                            <button className="w-full py-4 bg-blue-600 text-white font-black rounded-2xl uppercase text-xs tracking-widest shadow-xl shadow-blue-100">Xác Nhận Đã Chuyển</button>
+                                        </form>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'admin' && loggedUserData?.role === 'admin' && (
+                            <div className="space-y-8 pb-20">
+                                <div className="bg-slate-900 text-white p-8 rounded-[2rem] flex justify-between items-center shadow-2xl border border-white/10">
+                                    <div><h2 className="text-3xl font-black italic uppercase tracking-tighter">Quản Trị Shop</h2><p className="text-slate-400 text-xs font-bold uppercase">Cloud Firestore Integrated</p></div>
+                                    <div className="text-center bg-white/10 p-4 rounded-2xl"><p className="text-[10px] text-blue-400 font-black uppercase">Chờ xử lý</p><p className="text-3xl font-black">{pendingRequests.length}</p></div>
+                                </div>
+
+                                <div className="grid lg:grid-cols-3 gap-8">
+                                    <div className="lg:col-span-2 space-y-8">
+                                        <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
+                                            <h3 className="font-black text-xs uppercase text-slate-400 mb-6 flex items-center gap-2 italic"><i className="fa-solid fa-clock"></i> Đơn hàng mới nhất</h3>
+                                            <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                                                {pendingRequests.map(req => (
+                                                    <div key={req.id} className="p-5 bg-slate-50 rounded-3xl border flex justify-between items-center gap-4 group">
+                                                        <div className="flex gap-4 items-center">
+                                                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${req.category === 'deposit' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}><i className={`fa-solid ${req.category === 'deposit' ? 'fa-wallet' : 'fa-cart-shopping'}`}></i></div>
+                                                            <div>
+                                                                <p className="font-black text-slate-800 text-xs uppercase">{req.user} - {req.method || 'Đơn hàng'}</p>
+                                                                <p className="text-red-600 font-black text-sm">{(req.value || req.total).toLocaleString()}đ</p>
+                                                                {req.robloxUser && <p className="text-[9px] font-black text-blue-500 uppercase italic">Roblox: {req.robloxUser}</p>}
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex gap-2">
+                                                            <button onClick={() => handleApprove(req.id)} className="px-5 py-2.5 bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase">Duyệt</button>
+                                                            <button onClick={() => saveToCloud({ requests: pendingRequests.filter(r => r.id !== req.id), history: transactionHistory.map(h => h.id === req.id ? {...h, status: 'rejected'} : h) })} className="px-5 py-2.5 bg-red-500 text-white rounded-xl text-[10px] font-black uppercase">Hủy</button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {pendingRequests.length === 0 && <p className="text-center text-slate-400 italic py-10">Tất cả đơn hàng đã được xử lý.</p>}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-8">
+                                        <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
+                                            <h3 className="font-black text-xs text-slate-400 mb-6 uppercase italic">Cấu hình hệ thống</h3>
+                                            <div className="space-y-4">
+                                                <input value={shopSettings.bannerTitle} onChange={e => setShopSettings({...shopSettings, bannerTitle: e.target.value})} placeholder="Tiêu đề Banner" className="w-full p-3 border rounded-xl text-xs font-bold" />
+                                                <input value={shopSettings.accountNumber} onChange={e => setShopSettings({...shopSettings, accountNumber: e.target.value})} placeholder="Số tài khoản" className="w-full p-3 border rounded-xl text-xs font-bold" />
+                                                <button onClick={() => saveToCloud({ settings: shopSettings })} className="w-full py-3 bg-slate-900 text-white font-black text-[10px] uppercase rounded-xl shadow-lg">Lưu Cấu Hình</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'history' && (
+                            <div className="max-w-4xl mx-auto space-y-8 pb-20 animate-in fade-in duration-500">
+                                <h2 className="text-2xl font-black uppercase italic border-l-4 border-blue-600 pl-4">Lịch Sử Của Bạn</h2>
+                                <div className="bg-white rounded-[2rem] border overflow-hidden shadow-sm">
+                                    <table className="w-full text-left">
+                                        <thead className="bg-slate-50 text-[9px] font-black text-slate-400 uppercase tracking-widest border-b">
+                                            <tr><th className="px-6 py-5">Ngày</th><th className="px-6 py-5">Nội Dung</th><th className="px-6 py-5 text-center">Trạng Thái</th></tr>
                                         </thead>
-                                        <tbody>
-                                            {allUsers.map((u, i) => (
-                                                <tr key={i} className="border-b border-slate-700 hover:bg-slate-700/50">
-                                                    <td className="p-4 font-bold text-white">{u.username || u.email?.split('@')[0]}</td>
-                                                    <td className="p-4 text-red-400 font-mono">{u.password || 'Đã mã hóa'}</td>
-                                                    <td className="p-4 text-green-400 font-bold">{u.balance?.toLocaleString() || 0}đ</td>
-                                                    <td className="p-4">
-                                                        <span className={`px-2 py-1 rounded text-xs font-bold uppercase ${u.role === 'admin' ? 'bg-blue-500' : 'bg-slate-600'}`}>{u.role}</span>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {transactionHistory.filter(h => h.user === loggedUserData?.username || loggedUserData?.role === 'admin').map(h => (
+                                                <tr key={h.id} className="text-xs hover:bg-slate-50 transition-colors">
+                                                    <td className="px-6 py-5 text-slate-500 font-bold">{h.date}</td>
+                                                    <td className="px-6 py-5">
+                                                        <p className="font-black uppercase text-slate-800">{h.category === 'deposit' ? `Nạp Tiền` : `Mua Item`}</p>
+                                                        <p className="text-red-600 font-bold">{(h.value || h.total).toLocaleString()}đ</p>
+                                                    </td>
+                                                    <td className="px-6 py-5 text-center">
+                                                        <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${h.status === 'pending' ? 'bg-orange-100 text-orange-600' : h.status === 'approved' || h.status === 'completed' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
+                                                            {h.status === 'pending' ? 'Chờ Duyệt' : h.status === 'approved' || h.status === 'completed' ? 'Thành Công' : 'Từ Chối'}
+                                                        </span>
                                                     </td>
                                                 </tr>
                                             ))}
+                                            {transactionHistory.length === 0 && <tr><td colSpan="3" className="py-20 text-center italic text-slate-400">Chưa có giao dịch nào được ghi nhận.</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
                             </div>
                         )}
+                    </main>
 
-                        {/* TAB: CÀI ĐẶT CHUNG (MỚI) */}
-                        {adminTab === 'settings' && (
-                            <div className="max-w-xl mx-auto bg-slate-800 p-6 rounded-xl border border-slate-700">
-                                <h3 className="font-bold mb-6 text-lg text-blue-400">Cài đặt giao diện & Hệ thống</h3>
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-400 uppercase block mb-2">Chữ Banner Shop</label>
-                                        <input 
-                                            value={settingsForm.bannerText} onChange={e=>setSettingsForm({...settingsForm, bannerText: e.target.value})}
-                                            className="w-full p-3 bg-slate-900 border border-slate-600 rounded-lg outline-none text-white focus:border-blue-500"
-                                            placeholder="VD: Chào mừng đến với shop..."
-                                        />
+                    {/* Cart Drawer */}
+                    {isCartOpen && (
+                        <div className="fixed inset-0 z-[100] flex justify-end">
+                            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={() => setIsCartOpen(false)}></div>
+                            <div className="relative w-full max-w-md bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+                                <div className="p-8 border-b bg-slate-900 text-white flex justify-between items-center">
+                                    <h2 className="font-black uppercase italic text-xl flex items-center gap-2"><i className="fa-solid fa-cart-shopping"></i> Giỏ Hàng</h2>
+                                    <button onClick={() => setIsCartOpen(false)}><i className="fa-solid fa-xmark text-2xl"></i></button>
+                                </div>
+                                <div className="flex-grow overflow-y-auto p-6 space-y-4 custom-scrollbar">
+                                    {cart.map(i => (
+                                        <div key={i.id} className="bg-slate-50 p-4 rounded-3xl border flex gap-4">
+                                            <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center p-2 border shadow-sm"><img src={i.img} className="w-full h-full object-contain" /></div>
+                                            <div className="flex-grow">
+                                                <p className="text-xs font-black text-slate-800 uppercase italic line-clamp-1">{i.name}</p>
+                                                <div className="flex justify-between items-center mt-2">
+                                                    <p className="text-sm font-black text-red-600">{(i.price * i.qty).toLocaleString()}đ</p>
+                                                    <div className="flex items-center gap-2">
+                                                        <button onClick={() => setCart(cart.map(x => x.id === i.id ? {...x, qty: Math.max(0, x.qty - 1)} : x).filter(x => x.qty > 0))} className="w-8 h-8 bg-white border rounded-lg">-</button>
+                                                        <span className="text-xs font-black">{i.qty}</span>
+                                                        <button onClick={() => handleAddToCart(i)} className="w-8 h-8 bg-white border rounded-lg">+</button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {cart.length === 0 && <div className="h-full flex flex-col items-center justify-center text-slate-400 py-20 italic">Giỏ hàng đang trống</div>}
+                                </div>
+                                {cart.length > 0 && (
+                                    <div className="p-8 border-t space-y-6 bg-slate-50">
+                                        <div className="bg-blue-50/50 p-5 rounded-3xl border border-blue-100">
+                                            <label className="text-[10px] font-black text-blue-800 uppercase mb-2 block tracking-widest">Tài khoản Roblox nhận đồ</label>
+                                            <input value={robloxUsername} onChange={e => setRobloxUsername(e.target.value)} placeholder="Nhập tên đăng nhập Roblox..." className="w-full p-4 bg-white border rounded-2xl font-black text-sm outline-none shadow-sm" />
+                                        </div>
+                                        <div className="flex justify-between items-center px-2">
+                                            <span className="text-[10px] font-black uppercase text-slate-400">Tổng cộng</span>
+                                            <span className="text-3xl font-black text-red-600">{(cart.reduce((s,i) => s + (i.price * i.qty), 0)).toLocaleString()}đ</span>
+                                        </div>
+                                        <button onClick={checkout} className="w-full py-5 bg-blue-600 text-white font-black rounded-2xl uppercase shadow-xl hover:bg-blue-700 active:scale-95 transition-all tracking-widest text-xs">Thanh Toán Đám Mây</button>
                                     </div>
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-400 uppercase block mb-2">Link Ảnh QR Ngân Hàng</label>
-                                        <input 
-                                            value={settingsForm.bankQrUrl} onChange={e=>setSettingsForm({...settingsForm, bankQrUrl: e.target.value})}
-                                            className="w-full p-3 bg-slate-900 border border-slate-600 rounded-lg outline-none text-white focus:border-blue-500"
-                                            placeholder="https://img.vietqr.io/image/MB-123-compact.png"
-                                        />
-                                        {settingsForm.bankQrUrl && <img src={settingsForm.bankQrUrl} className="mt-4 w-32 h-32 rounded-xl object-cover border border-slate-600" />}
-                                    </div>
-                                    <button onClick={handleSaveSettings} className="w-full mt-4 bg-green-600 hover:bg-green-500 py-3 rounded-lg font-bold text-white transition-colors">
-                                        LƯU CÀI ĐẶT
-                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    <footer className="bg-slate-900 text-white mt-10 pt-16 pb-8 px-4 border-t-4 border-blue-600">
+                        <div className="max-w-7xl mx-auto grid md:grid-cols-3 gap-12 border-b border-white/10 pb-12">
+                            <div className="space-y-6">
+                                <div className="flex items-center gap-2">
+                                    <div className="bg-blue-600 p-2.5 rounded-xl shadow-lg"><i className="fa-solid fa-anchor text-[24px]"></i></div>
+                                    <span className="text-3xl font-black uppercase italic tracking-tighter">Sailor<span className="text-blue-600">Shop</span></span>
+                                </div>
+                                <p className="text-slate-400 text-sm font-medium">Hệ thống đồng bộ dữ liệu đa thiết bị qua Google Firebase Firestore. Mọi giao dịch đều được bảo mật tuyệt đối.</p>
+                            </div>
+                            <div className="space-y-4">
+                                <h4 className="font-black text-blue-500 uppercase italic text-sm tracking-widest">Liên kết nhanh</h4>
+                                <div className="grid grid-cols-2 gap-y-4 gap-x-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                                   <span className="hover:text-white cursor-pointer" onClick={() => setActiveTab('home')}>Trang chủ</span>
+                                   <span className="hover:text-white cursor-pointer" onClick={() => setActiveTab('shop')}>Sản phẩm</span>
+                                   <span className="hover:text-white cursor-pointer" onClick={() => setActiveTab('deposit')}>Nạp tiền</span>
+                                   <span className="hover:text-white cursor-pointer" onClick={() => setActiveTab('history')}>Lịch sử</span>
                                 </div>
                             </div>
-                        )}
-                    </div>
+                            <div className="space-y-4">
+                                <h4 className="font-black text-blue-500 uppercase italic text-sm tracking-widest">Hỗ trợ</h4>
+                                <a href={FANPAGE_URL} target="_blank" className="flex items-center gap-3 bg-white/5 p-4 rounded-2xl hover:bg-white/10 transition-all">
+                                    <i className="fa-brands fa-facebook-messenger text-2xl text-blue-500"></i>
+                                    <div>
+                                        <p className="text-xs font-black uppercase">Chăm sóc khách hàng</p>
+                                        <p className="text-[10px] text-slate-500 font-bold uppercase">Phản hồi siêu tốc</p>
+                                    </div>
+                                </a>
+                            </div>
+                        </div>
+                        <p className="text-center text-[10px] font-black text-slate-600 uppercase tracking-widest mt-8 italic">
+                          © 2024 Sailor Piece Market. Powered by Google Firebase.
+                        </p>
+                    </footer>
                 </div>
             );
         };
