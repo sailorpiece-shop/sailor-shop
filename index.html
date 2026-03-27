@@ -459,20 +459,58 @@
                                                     <div key={req.id} className="p-4 md:p-5 bg-slate-50 rounded-2xl md:rounded-3xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                                         <div className="flex gap-4 items-center w-full sm:w-auto">
                                                             <div className={`w-12 h-12 shrink-0 rounded-xl flex items-center justify-center ${req.category === 'deposit' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}><i className={`fa-solid ${req.category === 'deposit' ? 'fa-wallet' : 'fa-cart-shopping'}`}></i></div>
-                                                            <div className="truncate">
-                                                                <p className="font-black text-slate-800 text-xs uppercase truncate">{req.user} - {req.method || 'Đơn hàng'}</p>
-                                                                <p className="text-red-600 font-black text-sm">{(req.receivedValue || req.value || req.total).toLocaleString()}đ</p>
-                                                                {req.code && <p className="text-[9px] font-black text-blue-500 uppercase italic truncate">Thẻ: {req.type} | Code: {req.code}</p>}
+                                                            <div className="flex-1 min-w-0">
+                                                                <p className="font-black text-slate-800 text-xs uppercase">{req.user} - {req.method || 'Đơn hàng'}</p>
+                                                                <p className="text-red-600 font-black text-sm mb-1">{(req.receivedValue || req.value || req.total).toLocaleString()}đ</p>
+                                                                
+                                                                {/* Khung hiển thị Mã Thẻ & Seri rành mạch */}
+                                                                {req.code && (
+                                                                    <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-100 space-y-1 w-full max-w-xs mt-1">
+                                                                        <p className="text-[10px] font-black text-blue-700 uppercase">Thẻ: {req.type}</p>
+                                                                        <p className="text-[11px] font-black text-slate-700 flex justify-between"><span>Mã nạp:</span> <span className="text-blue-600 select-all tracking-wider">{req.code}</span></p>
+                                                                        <p className="text-[11px] font-black text-slate-700 flex justify-between"><span>Seri:</span> <span className="text-blue-600 select-all tracking-wider">{req.serial}</span></p>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Hiển thị Roblox ID và Danh sách vật phẩm nếu là mua hàng */}
+                                                                {req.robloxUser && (
+                                                                    <div className="mt-2 p-3 bg-slate-100/80 rounded-xl border border-slate-200/60 w-full max-w-xs">
+                                                                        <p className="text-[10px] font-black text-blue-600 uppercase mb-2 border-b border-blue-100 pb-1">Roblox: {req.robloxUser}</p>
+                                                                        <div className="space-y-1">
+                                                                            {req.items && req.items.map((itm, idx) => (
+                                                                                <p key={idx} className="text-[11px] font-bold text-slate-700 flex justify-between">
+                                                                                    <span className="truncate pr-2">- {itm.name}</span>
+                                                                                    <span className="text-red-500 shrink-0">x{itm.qty}</span>
+                                                                                </p>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
                                                         <div className="flex gap-2 w-full sm:w-auto mt-2 sm:mt-0">
                                                             <button 
                                                                 onClick={async () => {
-                                                                    const val = req.receivedValue || req.value;
-                                                                    const updatedUsers = registeredUsers.map(u => u.username === req.user ? { ...u, balance: u.balance + val } : u);
+                                                                    let updatedUsers = registeredUsers;
+                                                                    
+                                                                    // BẢN VÁ LỖI CỘNG TIỀN: Chỉ cộng nếu đó là yêu cầu nạp tiền (deposit)
+                                                                    if (req.category === 'deposit') {
+                                                                        const val = req.receivedValue || req.value;
+                                                                        updatedUsers = registeredUsers.map(u => 
+                                                                            u.username === req.user ? { ...u, balance: u.balance + val } : u
+                                                                        );
+
+                                                                        // Đồng bộ giao diện nếu Admin tự nạp cho chính mình
+                                                                        if (loggedUserData && loggedUserData.username === req.user) {
+                                                                            const newAdminData = { ...loggedUserData, balance: loggedUserData.balance + val };
+                                                                            setLoggedUserData(newAdminData);
+                                                                            localStorage.setItem('sp_session', JSON.stringify(newAdminData));
+                                                                        }
+                                                                    }
+
                                                                     await saveToCloud({
                                                                         users: updatedUsers,
-                                                                        history: transactionHistory.map(h => h.id === req.id ? {...h, status: 'approved'} : h),
+                                                                        history: transactionHistory.map(h => h.id === req.id ? {...h, status: req.category === 'deposit' ? 'approved' : 'completed'} : h),
                                                                         requests: pendingRequests.filter(r => r.id !== req.id)
                                                                     });
                                                                     showNotify("Đã duyệt thành công!");
@@ -627,16 +665,27 @@
                                                 <tr key={h.id} className="text-xs hover:bg-slate-50 transition-colors">
                                                     <td className="px-6 py-5 text-slate-500 font-bold">{h.date}</td>
                                                     <td className="px-6 py-5">
-                                                        <p className="font-black uppercase text-slate-800">{h.category === 'deposit' ? `Nạp Tiền` : `Mua: ${h.items?.length || 0} món`}</p>
+                                                        <p className="font-black uppercase text-slate-800">{h.category === 'deposit' ? `Nạp Tiền` : `Đơn Hàng`}</p>
+                                                        {h.items && (
+                                                            <div className="mt-1.5 mb-2 space-y-1 bg-slate-50 p-2 rounded-lg border border-slate-100 inline-block min-w-[200px]">
+                                                                {h.robloxUser && <p className="text-[9px] font-black text-blue-500 uppercase border-b border-slate-200 pb-1 mb-1">Roblox: {h.robloxUser}</p>}
+                                                                {h.items.map((itm, idx) => (
+                                                                    <p key={idx} className="text-[10px] text-slate-600 font-bold flex justify-between gap-4">
+                                                                        <span>• {itm.name}</span> <span className="text-red-500">x{itm.qty}</span>
+                                                                    </p>
+                                                                ))}
+                                                            </div>
+                                                        )}
                                                         <p className="text-red-600 font-bold">{(h.receivedValue || h.value || h.total).toLocaleString()}đ</p>
                                                     </td>
                                                     <td className="px-6 py-5 text-center">
-                                                        <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${h.status === 'pending' ? 'bg-orange-100 text-orange-600' : h.status === 'approved' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
-                                                            {h.status === 'pending' ? 'Chờ duyệt' : h.status === 'approved' ? 'Thành công' : 'Từ chối'}
+                                                        <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${h.status === 'pending' ? 'bg-orange-100 text-orange-600' : h.status === 'approved' ? 'bg-emerald-100 text-emerald-600' : h.status === 'completed' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>
+                                                            {h.status === 'pending' ? 'Chờ duyệt' : h.status === 'approved' || h.status === 'completed' ? 'Thành công' : 'Từ chối'}
                                                         </span>
                                                     </td>
                                                 </tr>
                                             ))}
+                                            {transactionHistory.length === 0 && <tr><td colSpan="3" className="py-20 text-center italic text-slate-400">Chưa có giao dịch nào được ghi nhận.</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
